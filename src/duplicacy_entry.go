@@ -771,16 +771,16 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 			}
 		}
 
+		if f.Mode()&(os.ModeNamedPipe|os.ModeSocket|os.ModeDevice) != 0 {
+			LOG_WARN("LIST_SKIP", "Skipped non-regular file %s", entry.Path)
+			skippedFiles = append(skippedFiles, entry.Path)
+			continue
+		}
+
 		entry.ReadAttributes(top)
 
 		if excludeByAttribute && entry.Attributes != nil && excludedByAttribute(*entry.Attributes) {
 			LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute", entry.Path)
-			continue
-		}
-
-		if f.Mode()&(os.ModeNamedPipe|os.ModeSocket|os.ModeDevice) != 0 {
-			LOG_WARN("LIST_SKIP", "Skipped non-regular file %s", entry.Path)
-			skippedFiles = append(skippedFiles, entry.Path)
 			continue
 		}
 

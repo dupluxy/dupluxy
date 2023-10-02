@@ -780,6 +780,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 					return 0
 				}
 			}
+			remoteEntry.RestoreEarlyDirFlags(fullPath)
 			directoryEntries = append(directoryEntries, remoteEntry)
 		} else {
 			// We can't download files here since fileEntries needs to be sorted
@@ -1194,6 +1195,7 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 					LOG_ERROR("DOWNLOAD_CREATE", "Failed to create the file %s for in-place writing: %v", fullPath, err)
 					return false, nil
 				}
+				entry.RestoreEarlyFileFlags(existingFile)
 
 				n := int64(1)
 				// There is a go bug on Windows (https://github.com/golang/go/issues/21681) that causes Seek to fail
@@ -1377,6 +1379,7 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 				return false, nil
 			}
 		}
+		entry.RestoreEarlyFileFlags(existingFile)
 
 		existingFile.Seek(0, 0)
 
@@ -1459,6 +1462,7 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 			LOG_ERROR("DOWNLOAD_OPEN", "Failed to open file for writing: %v", err)
 			return false, nil
 		}
+		entry.RestoreEarlyFileFlags(newFile)
 
 		hasher := manager.config.NewFileHasher()
 
