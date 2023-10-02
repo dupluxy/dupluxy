@@ -132,6 +132,18 @@ func SplitDir(fullPath string) (dir string, file string) {
 	return fullPath[:i+1], fullPath[i+1:]
 }
 
-func excludedByAttribute(attributes map[string][]byte) bool {
-	return false
+func (entry *Entry) ReadFileFlags(f *os.File) error {
+	return nil
+}
+
+func (entry *Entry) RestoreEarlyDirFlags(path string) error {
+	return nil
+}
+
+func (entry *Entry) RestoreEarlyFileFlags(f *os.File) error {
+	return nil
+}
+
+func (entry *Entry) RestoreLateFileFlags(f *os.File) error {
+	return nil
 }

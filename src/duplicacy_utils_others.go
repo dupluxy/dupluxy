@@ -48,9 +48,12 @@ func SetOwner(fullPath string, entry *Entry, fileInfo *os.FileInfo) bool {
 }
 
 func (entry *Entry) ReadAttributes(top string) {
-
 	fullPath := filepath.Join(top, entry.Path)
-	attributes, _ := xattr.List(fullPath)
+	f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return
+	}
+	attributes, _ := xattr.FList(f)
 	if len(attributes) > 0 {
 		entry.Attributes = &map[string][]byte{}
 		for _, name := range attributes {
@@ -60,30 +63,42 @@ func (entry *Entry) ReadAttributes(top string) {
 			}
 		}
 	}
+	if err := entry.ReadFileFlags(f); err != nil {
+		LOG_INFO("ATTR_BACKUP", "Could not backup flags for file %s: %v", fullPath, err)
+	}
+	f.Close()
 }
 
 func (entry *Entry) SetAttributesToFile(fullPath string) {
-	names, _ := xattr.List(fullPath)
+	f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return
+	}
 
+	names, _ := xattr.FList(f)
 	for _, name := range names {
-
-
 		newAttribute, found := (*entry.Attributes)[name]
 		if found {
-			oldAttribute, _ := xattr.Get(fullPath, name)
+			oldAttribute, _ := xattr.FGet(f, name)
 			if !bytes.Equal(oldAttribute, newAttribute) {
-				xattr.Set(fullPath, name, newAttribute)
+				xattr.FSet(f, name, newAttribute)
 			}
 			delete(*entry.Attributes, name)
 		} else {
-			xattr.Remove(fullPath, name)
+			xattr.FRemove(f, name)
 		}
 	}
 
 	for name, attribute := range *entry.Attributes {
-		xattr.Set(fullPath, name, attribute)
+		if len(name) > 0 && name[0] == '\x00' {
+			continue
+		}
+		xattr.FSet(f, name, attribute)
 	}
-
+	if err := entry.RestoreLateFileFlags(f); err != nil {
+		LOG_DEBUG("ATTR_RESTORE", "Could not restore flags for file %s: %v", fullPath, err)
+	}
+	f.Close()
 }
 
 func joinPath(components ...string) string {
