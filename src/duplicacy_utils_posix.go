@@ -2,8 +2,8 @@
 // Free for personal use and commercial trial
 // Commercial use requires per-user licenses available from https://duplicacy.com
 
-//go:build freebsd || netbsd || linux || solaris
-// +build freebsd netbsd linux solaris
+//go:build freebsd || netbsd || solaris
+// +build freebsd netbsd solaris
 
 package duplicacy
 
