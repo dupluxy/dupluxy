@@ -49,7 +49,7 @@ func SetOwner(fullPath string, entry *Entry, fileInfo *os.FileInfo) bool {
 
 func (entry *Entry) ReadAttributes(top string) {
 	fullPath := filepath.Join(top, entry.Path)
-	f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return
 	}
@@ -99,6 +99,37 @@ func (entry *Entry) SetAttributesToFile(fullPath string) {
 		LOG_DEBUG("ATTR_RESTORE", "Could not restore flags for file %s: %v", fullPath, err)
 	}
 	f.Close()
+}
+
+func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
+	if fileInfo.Mode() & (os.ModeDevice | os.ModeCharDevice) == 0 {
+		return true
+	}
+	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
+	if !ok || stat == nil {
+		return false
+	}
+	entry.Size = 0
+	rdev := uint64(stat.Rdev)
+	entry.StartChunk = int(rdev & 0xFFFFFFFF)
+	entry.StartOffset = int(rdev >> 32)
+	return true
+}
+
+func (entry *Entry) RestoreSpecial(fullPath string) error {
+	if entry.Mode & uint32(os.ModeDevice | os.ModeCharDevice) != 0 {
+		mode := entry.Mode & uint32(fileModeMask)
+		if entry.Mode & uint32(os.ModeCharDevice) != 0 {
+			mode |= syscall.S_IFCHR
+		} else {
+			mode |= syscall.S_IFBLK
+		}
+		rdev := uint64(entry.StartChunk) | uint64(entry.StartOffset) << 32
+		return syscall.Mknod(fullPath, mode, int(rdev))
+	} else if entry.Mode & uint32(os.ModeNamedPipe) != 0 {
+		return syscall.Mkfifo(fullPath, uint32(entry.Mode))
+	}
+	return nil
 }
 
 func joinPath(components ...string) string {

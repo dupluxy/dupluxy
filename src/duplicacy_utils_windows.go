@@ -117,6 +117,14 @@ func (entry *Entry) SetAttributesToFile(fullPath string) {
 
 }
 
+func (entry *Entry) ReadDeviceNode(fileInfo os.FileInfo) bool {
+	return nil
+}
+
+func (entry *Entry) RestoreSpecial(fullPath string) error {
+	return nil
+}
+
 func joinPath(components ...string) string {
 
 	combinedPath := `\\?\` + filepath.Join(components...)

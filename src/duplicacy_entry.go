@@ -509,6 +509,10 @@ func (entry *Entry) IsLink() bool {
 	return entry.Mode&uint32(os.ModeSymlink) != 0
 }
 
+func (entry *Entry) IsSpecial() bool {
+	return entry.Mode&uint32(os.ModeNamedPipe|os.ModeDevice|os.ModeCharDevice) != 0
+}
+
 func (entry *Entry) IsComplete() bool {
 	return entry.Size >= 0
 }
@@ -815,12 +819,15 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 				}
 				entry = newEntry
 			}
-		}
-
-		if f.Mode()&(os.ModeNamedPipe|os.ModeSocket|os.ModeDevice) != 0 {
-			LOG_WARN("LIST_SKIP", "Skipped non-regular file %s", entry.Path)
-			skippedFiles = append(skippedFiles, entry.Path)
+		} else if entry.Mode & uint32(os.ModeSocket) != 0 {
+			// no reason to issue a warning for what should always be a transient file anyways
 			continue
+		} else if entry.IsSpecial() {
+			if !entry.ReadSpecial(f) {
+				LOG_WARN("LIST_DEV", "Failed to save device node %s", entry.Path)
+				skippedFiles = append(skippedFiles, entry.Path)
+				continue
+			}
 		}
 
 		var linkKey *listEntryLinkKey

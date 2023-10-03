@@ -111,12 +111,12 @@ func (entryList *EntryList)createOnDiskFile() error {
 // Add an entry to the entry list
 func (entryList *EntryList)AddEntry(entry *Entry) error {
 
-	if !entry.IsDir() && !entry.IsLink() {
+	if entry.IsFile() {
 		entryList.NumberOfEntries++
 	}
 
 	if !entry.IsComplete() {
-		if entry.IsDir() || entry.IsLink() {
+		if !entry.IsFile() {
 			entry.Size = 0
 		} else {
 			modifiedEntry := ModifiedEntry {
