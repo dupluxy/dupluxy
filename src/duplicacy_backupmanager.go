@@ -797,6 +797,21 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			}
 			remoteEntry.RestoreEarlyDirFlags(fullPath)
 			directoryEntries = append(directoryEntries, remoteEntry)
+		} else if remoteEntry.IsSpecial() {
+			if stat, _ := os.Lstat(fullPath); stat != nil {
+				if !overwrite {
+					LOG_WERROR(allowFailures, "DOWNLOAD_OVERWRITE",
+						"File %s already exists.  Please specify the -overwrite option to overwrite", remoteEntry.Path)
+					continue
+				}
+				os.Remove(fullPath)
+			}
+
+			if err := remoteEntry.RestoreSpecial(fullPath); err != nil {
+				LOG_ERROR("RESTORE_SPECIAL", "Unable to restore special file %s: %v", remoteEntry.Path, err)
+				return 0
+			}
+			remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
 		} else {
 			if remoteEntry.IsHardlinkRoot() {
 				hardLinkTable[len(hardLinkTable)-1] = hardLinkEntry{remoteEntry, true}
