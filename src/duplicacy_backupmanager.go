@@ -753,8 +753,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 
 		fullPath := joinPath(top, remoteEntry.Path)
 		if remoteEntry.IsLink() {
-			stat, err := os.Lstat(fullPath)
-			if stat != nil {
+			if stat, _ := os.Lstat(fullPath); stat != nil {
 				if stat.Mode()&os.ModeSymlink != 0 {
 					isRegular, link, err := Readlink(fullPath)
 					if err == nil && link == remoteEntry.Link && !isRegular {
@@ -763,11 +762,16 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 					}
 				}
 
+				if !overwrite {
+					LOG_WERROR(allowFailures, "DOWNLOAD_OVERWRITE",
+						"File %s already exists.  Please specify the -overwrite option to overwrite", remoteEntry.Path)
+					continue
+				}
+
 				os.Remove(fullPath)
 			}
 
-			err = os.Symlink(remoteEntry.Link, fullPath)
-			if err != nil {
+			if err := os.Symlink(remoteEntry.Link, fullPath); err != nil {
 				LOG_ERROR("RESTORE_SYMLINK", "Can't create symlink %s: %v", remoteEntry.Path, err)
 				return 0
 			}
