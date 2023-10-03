@@ -48,6 +48,9 @@ func ioctl(f *os.File, request uintptr, attrp *uint32) error {
 }
 
 func (entry *Entry) ReadFileFlags(f *os.File) error {
+	if entry.IsSpecial() {
+		return nil
+	}
 	var flags uint32
 	if err := ioctl(f, linux_FS_IOC_GETFLAGS, &flags); err != nil {
 		return err
