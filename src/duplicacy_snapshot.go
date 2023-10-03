@@ -68,6 +68,7 @@ func (snapshot *Snapshot) ListLocalFiles(top string, nobackupFile string,
 								         skippedDirectories *[]string, skippedFiles *[]string) {
 
 	var patterns []string
+	listingState := NewListingState()
 
 	if filtersFile == "" {
 		filtersFile = joinPath(GetDuplicacyPreferencePath(), "filters")
@@ -81,7 +82,7 @@ func (snapshot *Snapshot) ListLocalFiles(top string, nobackupFile string,
 
 		directory := directories[len(directories)-1]
 		directories = directories[:len(directories)-1]
-		subdirectories, skipped, err := ListEntries(top, directory.Path, patterns, nobackupFile, excludeByAttribute, listingChannel)
+		subdirectories, skipped, err := ListEntries(top, directory.Path, patterns, nobackupFile, excludeByAttribute, listingState, listingChannel)
 		if err != nil {
 			if directory.Path == "" {
 				LOG_ERROR("LIST_FAILURE", "Failed to list the repository root: %v", err)

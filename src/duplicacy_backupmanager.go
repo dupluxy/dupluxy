@@ -703,7 +703,18 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 	var localEntry *Entry
 	localListingOK := true
 
+	type hardLinkEntry struct {
+		entry *Entry
+		willDownload bool
+	}
+	var hardLinkTable []hardLinkEntry
+	var hardLinks []*Entry
+
 	for remoteEntry := range remoteListingChannel {
+
+		if remoteEntry.IsHardlinkRoot() {
+			hardLinkTable = append(hardLinkTable, hardLinkEntry{remoteEntry, false})
+		}
 
 		if len(patterns) > 0 && !MatchPath(remoteEntry.Path, patterns) {
 			continue
@@ -783,6 +794,21 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			remoteEntry.RestoreEarlyDirFlags(fullPath)
 			directoryEntries = append(directoryEntries, remoteEntry)
 		} else {
+			if remoteEntry.IsHardlinkRoot() {
+				hardLinkTable[len(hardLinkTable)-1] = hardLinkEntry{remoteEntry, true}
+			} else if remoteEntry.IsHardlinkedFrom() {
+				i, err := strconv.ParseUint(remoteEntry.Link, 16, 64)
+				if err !=  nil {
+					LOG_ERROR("RESTORE_HARDLINK", "Decode error in hardlink entry, expected hex int, got %s", remoteEntry.Link)
+					return 0
+				}
+				if !hardLinkTable[i].willDownload {
+					hardLinkTable[i] = hardLinkEntry{remoteEntry, true}
+				} else {
+					hardLinks = append(hardLinks, remoteEntry)
+					continue
+				}
+			}
 			// We can't download files here since fileEntries needs to be sorted
 			fileEntries = append(fileEntries, remoteEntry)
 			totalFileSize += remoteEntry.Size
@@ -900,6 +926,17 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			skippedFileCount++
 		}
 		file.RestoreMetadata(fullPath, nil, setOwner)
+	}
+
+	for _, linkEntry := range hardLinks {
+		i, _ := strconv.ParseUint(linkEntry.Link, 16, 64)
+		sourcePath := joinPath(top, hardLinkTable[i].entry.Path)
+		fullPath := joinPath(top, linkEntry.Path)
+		LOG_INFO("RESTORE_HARDLINK", "Hard linking %s to %s", fullPath, sourcePath)
+		if err := os.Link(sourcePath, fullPath); err != nil {
+			LOG_ERROR("RESTORE_HARDLINK", "Failed to create hard link %s to %s", fullPath, sourcePath)
+			return 0
+		}
 	}
 
 	if deleteMode && len(patterns) == 0 {
@@ -1053,8 +1090,13 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 
 	lastEndChunk := 0
 
-	uploadEntryInfoFunc := func(entry *Entry) error {
+	type hardLinkEntry struct {
+		entry *Entry
+		startChunk int
+	}
+	var hardLinkTable []hardLinkEntry
 
+	uploadEntryInfoFunc := func(entry *Entry) error {
 		if entry.IsFile() && entry.Size > 0 {
 			delta := entry.StartChunk - len(chunkHashes) + 1
 			if entry.StartChunk != lastChunk {
@@ -1072,10 +1114,38 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 			entry.StartChunk -= delta
 			entry.EndChunk -= delta
 
+			if entry.IsHardlinkRoot() {
+				LOG_DEBUG("SNAPSHOT_UPLOAD", "Hard link root %s %v %v", entry.Path, entry.StartChunk, entry.EndChunk)
+				hardLinkTable = append(hardLinkTable, hardLinkEntry{entry, entry.StartChunk})
+			}
+
 			delta = entry.EndChunk - entry.StartChunk
 			entry.StartChunk -= lastEndChunk
 			lastEndChunk = entry.EndChunk
 			entry.EndChunk = delta
+		} else if entry.IsHardlinkedFrom() {
+			i, err := strconv.ParseUint(entry.Link, 16, 64)
+			if err !=  nil {
+				LOG_ERROR("SNAPSHOT_UPLOAD", "Decode error in hardlink entry, expected hex int, got %s", entry.Link)
+				return err
+			}
+
+			targetEntry := hardLinkTable[i].entry
+			var startChunk, endChunk int
+
+			if targetEntry.Size > 0 {
+				startChunk = hardLinkTable[i].startChunk - lastEndChunk
+				endChunk = targetEntry.EndChunk
+			}
+			entry = entry.HardLinkTo(targetEntry, startChunk, endChunk)
+
+			if targetEntry.Size > 0 {
+				lastEndChunk = hardLinkTable[i].startChunk + endChunk
+			}
+
+			LOG_DEBUG("SNAPSHOT_UPLOAD", "Uploading cloned hardlink for %s to %s (%v %v)", entry.Path, targetEntry.Path, startChunk, endChunk)
+		} else if entry.IsHardlinkRoot() {
+			hardLinkTable = append(hardLinkTable, hardLinkEntry{entry, 0})
 		}
 
 		buffer.Reset()
