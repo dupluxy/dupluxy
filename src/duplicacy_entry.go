@@ -4,6 +4,8 @@
 package duplicacy
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -15,12 +17,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
-	"bytes"
-	"crypto/sha256"
 
-    "github.com/vmihailenco/msgpack"
-
+	"github.com/vmihailenco/msgpack"
 )
 
 // This is the hidden directory in the repository for storing various files.
@@ -110,12 +110,33 @@ func (entry *Entry) Copy() *Entry {
 		UID: entry.UID,
 		GID: entry.GID,
 
-		StartChunk: entry.StartChunk,
+		StartChunk:  entry.StartChunk,
 		StartOffset: entry.StartOffset,
-		EndChunk: entry.EndChunk,
-		EndOffset: entry.EndOffset,
+		EndChunk:    entry.EndChunk,
+		EndOffset:   entry.EndOffset,
 
 		Attributes: entry.Attributes,
+	}
+}
+
+func (entry *Entry) HardLinkTo(target *Entry, startChunk int, endChunk int) *Entry {
+	return &Entry{
+		Path: entry.Path,
+		Size: target.Size,
+		Time: target.Time,
+		Mode: target.Mode,
+		Link: entry.Link,
+		Hash: target.Hash,
+
+		UID: target.UID,
+		GID: target.GID,
+
+		StartChunk:  startChunk,
+		StartOffset: target.StartOffset,
+		EndChunk:    endChunk,
+		EndOffset:   target.EndOffset,
+
+		Attributes: target.Attributes,
 	}
 }
 
@@ -362,12 +383,12 @@ func (entry *Entry) EncodeMsgpack(encoder *msgpack.Encoder) error {
 
 	if entry.Attributes != nil {
 		attributes := make([]string, numberOfAttributes)
-        i := 0
-        for attribute := range *entry.Attributes {
-            attributes[i] = attribute
-            i++
-        }
-        sort.Strings(attributes)
+		i := 0
+		for attribute := range *entry.Attributes {
+			attributes[i] = attribute
+			i++
+		}
+		sort.Strings(attributes)
 		for _, attribute := range attributes {
 			err = encoder.EncodeString(attribute)
 			if err != nil {
@@ -380,7 +401,7 @@ func (entry *Entry) EncodeMsgpack(encoder *msgpack.Encoder) error {
 		}
 	}
 
-    return nil
+	return nil
 }
 
 func (entry *Entry) DecodeMsgpack(decoder *msgpack.Decoder) error {
@@ -492,14 +513,22 @@ func (entry *Entry) IsComplete() bool {
 	return entry.Size >= 0
 }
 
+func (entry *Entry) IsHardlinkedFrom() bool {
+	return entry.IsFile() && len(entry.Link) > 0 && entry.Link != "/"
+}
+
+func (entry *Entry) IsHardlinkRoot() bool {
+	return entry.IsFile() && entry.Link == "/"
+}
+
 func (entry *Entry) GetPermissions() os.FileMode {
 	return os.FileMode(entry.Mode) & fileModeMask
 }
 
 func (entry *Entry) GetParent() string {
 	path := entry.Path
-	if path != "" && path[len(path) - 1] == '/' {
-		path = path[:len(path) - 1]
+	if path != "" && path[len(path)-1] == '/' {
+		path = path[:len(path)-1]
 	}
 	i := strings.LastIndex(path, "/")
 	if i == -1 {
@@ -596,7 +625,7 @@ func ComparePaths(left string, right string) int {
 	for i := p; i < len(left); i++ {
 		c3 = left[i]
 		if c3 == '/' {
-			last1 = i == len(left) - 1
+			last1 = i == len(left)-1
 			break
 		}
 	}
@@ -606,7 +635,7 @@ func ComparePaths(left string, right string) int {
 	for i := p; i < len(right); i++ {
 		c4 = right[i]
 		if c4 == '/' {
-			last2 = i == len(right) - 1
+			last2 = i == len(right)-1
 			break
 		}
 	}
@@ -694,10 +723,27 @@ func (files FileInfoCompare) Less(i, j int) bool {
 	}
 }
 
+type listEntryLinkKey struct {
+	dev uint64
+	ino uint64
+}
+
+type ListingState struct {
+	linkIndex int
+	linkTable map[listEntryLinkKey]int // map unique inode details to initially found path
+}
+
+func NewListingState() *ListingState {
+	return &ListingState{
+		linkTable: make(map[listEntryLinkKey]int),
+	}
+}
+
 // ListEntries returns a list of entries representing file and subdirectories under the directory 'path'.  Entry paths
 // are normalized as relative to 'top'.  'patterns' are used to exclude or include certain files.
-func ListEntries(top string, path string, patterns []string, nobackupFile string, excludeByAttribute bool, listingChannel chan *Entry) (directoryList []*Entry,
-	skippedFiles []string, err error) {
+func ListEntries(top string, path string, patterns []string, nobackupFile string, excludeByAttribute bool,
+	listingState *ListingState,
+	listingChannel chan *Entry) (directoryList []*Entry, skippedFiles []string, err error) {
 
 	LOG_DEBUG("LIST_ENTRIES", "Listing %s", path)
 
@@ -777,11 +823,34 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 			continue
 		}
 
+		var linkKey *listEntryLinkKey
+
+		if stat, ok := f.Sys().(*syscall.Stat_t); entry.IsFile() && ok && stat != nil && stat.Nlink > 1 {
+			k := listEntryLinkKey{dev: uint64(stat.Dev), ino: uint64(stat.Ino)}
+			if linkIndex, seen := listingState.linkTable[k]; seen {
+				if linkIndex == -1 {
+					LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute (hardlink)", entry.Path)
+					continue
+				}
+				entry.Size = 0
+				entry.Link = strconv.FormatInt(int64(linkIndex), 16)
+			} else {
+				entry.Link = "/"
+				listingState.linkTable[k] = -1
+				linkKey = &k
+			}
+		}
+
 		entry.ReadAttributes(top)
 
 		if excludeByAttribute && entry.Attributes != nil && excludedByAttribute(*entry.Attributes) {
 			LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute", entry.Path)
 			continue
+		}
+
+		if linkKey != nil {
+			listingState.linkTable[*linkKey] = listingState.linkIndex
+			listingState.linkIndex++
 		}
 
 		if entry.IsDir() {
