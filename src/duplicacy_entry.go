@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	entrySymHardLinkRootChunkMarker   = -9
-	entrySymHardLinkTargetChunkMarker = -10
+	entryHardLinkRootChunkMarker   = -9
+	entryHardLinkTargetChunkMarker = -10
 )
 
 // This is the hidden directory in the repository for storing various files.
@@ -126,6 +126,13 @@ func (entry *Entry) Copy() *Entry {
 }
 
 func (entry *Entry) HardLinkTo(target *Entry, startChunk int, endChunk int) *Entry {
+	endOffset := target.EndOffset
+
+	if !target.IsFile() {
+		startChunk = target.StartChunk
+		endChunk = entry.EndChunk
+		endOffset = entry.EndOffset
+	}
 	return &Entry{
 		Path: entry.Path,
 		Size: target.Size,
@@ -140,7 +147,7 @@ func (entry *Entry) HardLinkTo(target *Entry, startChunk int, endChunk int) *Ent
 		StartChunk:  startChunk,
 		StartOffset: target.StartOffset,
 		EndChunk:    endChunk,
-		EndOffset:   target.EndOffset,
+		EndOffset:   endOffset,
 
 		Attributes: target.Attributes,
 	}
@@ -519,31 +526,27 @@ func (entry *Entry) IsSpecial() bool {
 	return entry.Mode&uint32(os.ModeNamedPipe|os.ModeDevice|os.ModeCharDevice|os.ModeSocket) != 0
 }
 
-func (entry *Entry) IsFileOrSpecial() bool {
-	return entry.Mode&uint32(os.ModeDir|os.ModeSymlink|os.ModeIrregular) == 0
-}
-
 func (entry *Entry) IsComplete() bool {
 	return entry.Size >= 0
 }
 
 func (entry *Entry) IsHardlinkedFrom() bool {
-	return (entry.IsFileOrSpecial() && len(entry.Link) > 0 && entry.Link != "/") || (entry.IsLink() && entry.StartChunk == entrySymHardLinkTargetChunkMarker)
+	return (entry.IsFile() && len(entry.Link) > 0 && entry.Link != "/") || (!entry.IsDir() && entry.EndChunk == entryHardLinkTargetChunkMarker)
 }
 
 func (entry *Entry) IsHardlinkRoot() bool {
-	return (entry.IsFileOrSpecial() && entry.Link == "/") || (entry.IsLink() && entry.StartChunk == entrySymHardLinkRootChunkMarker)
+	return (entry.IsFile() && entry.Link == "/") || (!entry.IsDir() && entry.EndChunk == entryHardLinkRootChunkMarker)
 }
 
 func (entry *Entry) GetHardlinkId() (int, error) {
-	if entry.IsLink() {
-		if entry.StartChunk != entrySymHardLinkTargetChunkMarker {
-			return 0, errors.New("Symlink entry not marked as hardlinked")
-		}
-		return entry.StartOffset, nil
-	} else {
+	if entry.IsFile() {
 		i, err := strconv.ParseUint(entry.Link, 16, 64)
 		return int(i), err
+	} else {
+		if entry.EndChunk != entryHardLinkTargetChunkMarker {
+			return 0, errors.New("Symlink entry not marked as hardlinked")
+		}
+		return entry.EndOffset, nil
 	}
 }
 
@@ -824,17 +827,19 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 						continue
 					}
 					entry.Size = 0
-					if entry.IsLink() {
-						entry.StartChunk = entrySymHardLinkTargetChunkMarker
-						entry.StartOffset = linkIndex
-					} else {
+					if entry.IsFile() {
 						entry.Link = strconv.FormatInt(int64(linkIndex), 16)
-					}
-				} else {
-					if entry.IsLink() {
-						entry.StartChunk = entrySymHardLinkRootChunkMarker
 					} else {
+						entry.EndChunk = entryHardLinkTargetChunkMarker
+						entry.EndOffset = linkIndex
+					}
+					listingChannel <- entry
+					continue
+				} else {
+					if entry.IsFile() {
 						entry.Link = "/"
+					} else {
+						entry.EndChunk = entryHardLinkRootChunkMarker
 					}
 					listingState.linkTable[k] = -1
 					linkKey = &k
