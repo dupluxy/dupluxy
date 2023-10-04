@@ -609,7 +609,6 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 		entry.SetAttributesToFile(fullPath)
 	}
 
-
 	// Only set the time if the file is not a symlink
 	if !entry.IsLink() && (*fileInfo).ModTime().Unix() != entry.Time {
 		modifiedTime := time.Unix(entry.Time, 0)
@@ -808,7 +807,7 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 		if f.Name() == DUPLICACY_DIRECTORY {
 			continue
 		}
-		if f.Mode() & os.ModeSocket != 0 {
+		if f.Mode()&os.ModeSocket != 0 {
 			continue
 		}
 
