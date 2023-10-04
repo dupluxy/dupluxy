@@ -2,18 +2,15 @@
 // Free for personal use and commercial trial
 // Commercial use requires per-user licenses available from https://duplicacy.com
 
+//go:build !windows
 // +build !windows
 
 package duplicacy
 
 import (
-	"bytes"
 	"os"
 	"path"
-	"path/filepath"
 	"syscall"
-
-	"github.com/pkg/xattr"
 )
 
 func Readlink(path string) (isRegular bool, s string, err error) {
@@ -47,60 +44,6 @@ func SetOwner(fullPath string, entry *Entry, fileInfo *os.FileInfo) bool {
 	return true
 }
 
-func (entry *Entry) ReadAttributes(top string) {
-	fullPath := filepath.Join(top, entry.Path)
-	f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return
-	}
-	attributes, _ := xattr.FList(f)
-	if len(attributes) > 0 {
-		entry.Attributes = &map[string][]byte{}
-		for _, name := range attributes {
-			attribute, err := xattr.Get(fullPath, name)
-			if err == nil {
-				(*entry.Attributes)[name] = attribute
-			}
-		}
-	}
-	if err := entry.ReadFileFlags(f); err != nil {
-		LOG_INFO("ATTR_BACKUP", "Could not backup flags for file %s: %v", fullPath, err)
-	}
-	f.Close()
-}
-
-func (entry *Entry) SetAttributesToFile(fullPath string) {
-	f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return
-	}
-
-	names, _ := xattr.FList(f)
-	for _, name := range names {
-		newAttribute, found := (*entry.Attributes)[name]
-		if found {
-			oldAttribute, _ := xattr.FGet(f, name)
-			if !bytes.Equal(oldAttribute, newAttribute) {
-				xattr.FSet(f, name, newAttribute)
-			}
-			delete(*entry.Attributes, name)
-		} else {
-			xattr.FRemove(f, name)
-		}
-	}
-
-	for name, attribute := range *entry.Attributes {
-		if len(name) > 0 && name[0] == '\x00' {
-			continue
-		}
-		xattr.FSet(f, name, attribute)
-	}
-	if err := entry.RestoreLateFileFlags(f); err != nil {
-		LOG_DEBUG("ATTR_RESTORE", "Could not restore flags for file %s: %v", fullPath, err)
-	}
-	f.Close()
-}
-
 func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
 	if fileInfo.Mode() & (os.ModeDevice | os.ModeCharDevice) == 0 {
 		return true
@@ -117,19 +60,18 @@ func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
 }
 
 func (entry *Entry) RestoreSpecial(fullPath string) error {
-	if entry.Mode & uint32(os.ModeDevice | os.ModeCharDevice) != 0 {
-		mode := entry.Mode & uint32(fileModeMask)
-		if entry.Mode & uint32(os.ModeCharDevice) != 0 {
-			mode |= syscall.S_IFCHR
-		} else {
-			mode |= syscall.S_IFBLK
-		}
-		rdev := uint64(entry.StartChunk) | uint64(entry.StartOffset) << 32
-		return syscall.Mknod(fullPath, mode, int(rdev))
-	} else if entry.Mode & uint32(os.ModeNamedPipe) != 0 {
-		return syscall.Mkfifo(fullPath, uint32(entry.Mode))
+	mode := entry.Mode & uint32(fileModeMask)
+
+	if entry.Mode & uint32(os.ModeNamedPipe) != 0 {
+		mode |= syscall.S_IFIFO
+	} else if entry.Mode & uint32(os.ModeCharDevice) != 0 {
+		mode |= syscall.S_IFCHR
+	} else if entry.Mode & uint32(os.ModeDevice) != 0 {
+		mode |= syscall.S_IFBLK
+	} else {
+		return nil
 	}
-	return nil
+	return syscall.Mknod(fullPath, mode, int(uint64(entry.StartChunk) | uint64(entry.StartOffset) << 32))
 }
 
 func joinPath(components ...string) string {
