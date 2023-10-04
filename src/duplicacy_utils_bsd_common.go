@@ -92,3 +92,18 @@ func (entry *Entry) RestoreEarlyDirFlags(path string) error {
 func (entry *Entry) RestoreEarlyFileFlags(f *os.File) error {
 	return nil
 }
+
+func (entry *Entry) RestoreSpecial(fullPath string) error {
+	mode := entry.Mode & uint32(fileModeMask)
+
+	if entry.Mode&uint32(os.ModeNamedPipe) != 0 {
+		mode |= syscall.S_IFIFO
+	} else if entry.Mode&uint32(os.ModeCharDevice) != 0 {
+		mode |= syscall.S_IFCHR
+	} else if entry.Mode&uint32(os.ModeDevice) != 0 {
+		mode |= syscall.S_IFBLK
+	} else {
+		return nil
+	}
+	return syscall.Mknod(fullPath, mode, int(entry.GetRdev()))
+}
