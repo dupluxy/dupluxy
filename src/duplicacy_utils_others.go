@@ -8,6 +8,7 @@
 package duplicacy
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"syscall"
@@ -71,6 +72,26 @@ func (entry *Entry) IsSameSpecial(fileInfo os.FileInfo) bool {
 		return false
 	}
 	return (uint32(fileInfo.Mode()) == entry.Mode) && (uint64(stat.Rdev) == entry.GetRdev())
+}
+
+func (entry *Entry) FmtSpecial() string {
+	var c string
+	mode := entry.Mode & uint32(os.ModeType)
+
+	if mode&uint32(os.ModeNamedPipe) != 0 {
+		c = "p"
+	} else if mode&uint32(os.ModeCharDevice) != 0 {
+		c = "c"
+	} else if mode&uint32(os.ModeDevice) != 0 {
+		c = "b"
+	} else if mode&uint32(os.ModeSocket) != 0 {
+		c = "s"
+	} else {
+		return ""
+	}
+
+	rdev := entry.GetRdev()
+	return fmt.Sprintf("%s (%d, %d)", c, unix.Major(rdev), unix.Minor(rdev))
 }
 
 func MakeHardlink(source string, target string) error {
