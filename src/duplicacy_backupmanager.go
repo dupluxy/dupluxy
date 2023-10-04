@@ -1198,7 +1198,6 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 			entry.EndChunk -= delta
 
 			if entry.IsHardlinkRoot() {
-				LOG_DEBUG("SNAPSHOT_UPLOAD", "Hard link root %s %v %v", entry.Path, entry.StartChunk, entry.EndChunk)
 				hardLinkTable = append(hardLinkTable, hardLinkEntry{entry, entry.StartChunk})
 			}
 
@@ -1206,7 +1205,7 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 			entry.StartChunk -= lastEndChunk
 			lastEndChunk = entry.EndChunk
 			entry.EndChunk = delta
-		} else if entry.IsHardlinkedFrom() && !entry.IsLink() {
+		} else if entry.IsHardlinkedFrom() {
 			i, err := entry.GetHardlinkId()
 			if err != nil {
 				LOG_ERROR("SNAPSHOT_UPLOAD", "Decode error for hardlinked entry %s, %v", entry.Link, err)
@@ -1216,17 +1215,13 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 			targetEntry := hardLinkTable[i].entry
 			var startChunk, endChunk int
 
-			if targetEntry.Size > 0 {
+			if targetEntry.IsFile() && targetEntry.Size > 0 {
 				startChunk = hardLinkTable[i].startChunk - lastEndChunk
 				endChunk = targetEntry.EndChunk
+				lastEndChunk = hardLinkTable[i].startChunk + endChunk
 			}
 			entry = entry.HardLinkTo(targetEntry, startChunk, endChunk)
 
-			if targetEntry.Size > 0 {
-				lastEndChunk = hardLinkTable[i].startChunk + endChunk
-			}
-
-			LOG_DEBUG("SNAPSHOT_UPLOAD", "Uploading cloned hardlink for %s to %s (%v %v)", entry.Path, targetEntry.Path, startChunk, endChunk)
 		} else if entry.IsHardlinkRoot() {
 			hardLinkTable = append(hardLinkTable, hardLinkEntry{entry, 0})
 		}
