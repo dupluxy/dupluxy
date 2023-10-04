@@ -5,10 +5,29 @@
 package duplicacy
 
 import (
+	"os"
+	"syscall"
 	"strings"
+	"encoding/binary"
 )
 
 func excludedByAttribute(attributes map[string][]byte) bool {
 	value, ok := attributes["com.apple.metadata:com_apple_backup_excludeItem"]
 	return ok && strings.Contains(string(value), "com.apple.backupd")
+}
+
+func (entry *Entry) restoreLateFileFlags(path string) error {
+	if entry.Attributes == nil {
+		return nil
+	}
+	if v, have := (*entry.Attributes)[bsdFileFlagsKey]; have {
+		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_SYMLINK, 0)
+		if err != nil {
+			return err
+		}
+		err = syscall.Fchflags(int(f.Fd()), int(binary.LittleEndian.Uint32(v)))
+		f.Close()
+		return err
+	}
+	return nil
 }

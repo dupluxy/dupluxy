@@ -5,10 +5,14 @@
 package duplicacy
 
 import (
+	"bytes"
 	"encoding/binary"
 	"os"
 	"syscall"
 	"unsafe"
+	"path/filepath"
+
+	"github.com/pkg/xattr"
 )
 
 const (
@@ -47,10 +51,116 @@ func ioctl(f *os.File, request uintptr, attrp *uint32) error {
 	return nil
 }
 
-func (entry *Entry) ReadFileFlags(f *os.File) error {
-	if entry.IsSpecial() {
-		return nil
+type xattrHandle struct {
+	f *os.File
+	fullPath string
+}
+
+func (x xattrHandle) list() ([]string, error) {
+	if x.f != nil {
+		return xattr.FList(x.f)
+	} else {
+		return xattr.LList(x.fullPath)
 	}
+}
+
+func (x xattrHandle) get(name string) ([]byte, error) {
+	if x.f != nil {
+		return xattr.FGet(x.f, name)
+	} else {
+		return xattr.LGet(x.fullPath, name)
+	}
+}
+
+func (x xattrHandle) set(name string, value []byte) error {
+	if x.f != nil {
+		return xattr.FSet(x.f, name, value)
+	} else {
+		return xattr.LSet(x.fullPath, name, value)
+	}
+}
+
+func (x xattrHandle) remove(name string) error {
+	if x.f != nil {
+		return xattr.FRemove(x.f, name)
+	} else {
+		return xattr.LRemove(x.fullPath, name)
+	}
+}
+
+func (entry *Entry) ReadAttributes(top string) {
+	fullPath := filepath.Join(top, entry.Path)
+	x := xattrHandle{nil, fullPath}
+
+	if !entry.IsLink() {
+		var err error
+		x.f, err = os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			// FIXME: We really should return errors for failure to read
+			return
+		}
+	}
+
+	attributes, _ := x.list()
+
+	if len(attributes) > 0 {
+		entry.Attributes = &map[string][]byte{}
+	}
+	for _, name := range attributes {
+		attribute, err := x.get(name)
+		if err == nil {
+			(*entry.Attributes)[name] = attribute
+		}
+	}
+
+	if entry.IsFile() || entry.IsDir() {
+		if err := entry.readFileFlags(x.f); err != nil {
+			LOG_INFO("ATTR_BACKUP", "Could not backup flags for file %s: %v", fullPath, err)
+		}
+	}
+	x.f.Close()
+}
+
+func (entry *Entry) SetAttributesToFile(fullPath string) {
+	x := xattrHandle{nil, fullPath}
+	if !entry.IsLink() {
+		var err error
+		x.f, err = os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		if err != nil {
+			return
+		}
+	}
+
+	names, _ := x.list()
+
+	for _, name := range names {
+		newAttribute, found := (*entry.Attributes)[name]
+		if found {
+			oldAttribute, _ := x.get(name)
+			if !bytes.Equal(oldAttribute, newAttribute) {
+				x.set(name, newAttribute)
+			}
+			delete(*entry.Attributes, name)
+		} else {
+			x.remove(name)
+		}
+	}
+
+	for name, attribute := range *entry.Attributes {
+		if len(name) > 0 && name[0] == '\x00' {
+			continue
+		}
+		x.set(name, attribute)
+	}
+	if entry.IsFile() || entry.IsDir() {
+		if err := entry.restoreLateFileFlags(x.f); err != nil {
+			LOG_DEBUG("ATTR_RESTORE", "Could not restore flags for file %s: %v", fullPath, err)
+		}
+	}
+	x.f.Close()
+}
+
+func (entry *Entry) readFileFlags(f *os.File) error {
 	var flags uint32
 	if err := ioctl(f, linux_FS_IOC_GETFLAGS, &flags); err != nil {
 		return err
@@ -97,7 +207,7 @@ func (entry *Entry) RestoreEarlyFileFlags(f *os.File) error {
 	return nil
 }
 
-func (entry *Entry) RestoreLateFileFlags(f *os.File) error {
+func (entry *Entry) restoreLateFileFlags(f *os.File) error {
 	if entry.Attributes == nil {
 		return nil
 	}
