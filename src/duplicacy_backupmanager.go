@@ -705,7 +705,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 
 	type hardLinkEntry struct {
 		entry *Entry
-		willDownload bool
+		willExist bool
 	}
 	var hardLinkTable []hardLinkEntry
 	var hardLinks []*Entry
@@ -752,12 +752,16 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 		}
 
 		fullPath := joinPath(top, remoteEntry.Path)
+
 		if remoteEntry.IsLink() {
 			if stat, _ := os.Lstat(fullPath); stat != nil {
 				if stat.Mode()&os.ModeSymlink != 0 {
 					isRegular, link, err := Readlink(fullPath)
 					if err == nil && link == remoteEntry.Link && !isRegular {
 						remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
+						if remoteEntry.IsHardlinkRoot() {
+							hardLinkTable[len(hardLinkTable)-1].willExist = true
+						}
 						continue
 					}
 				}
@@ -771,11 +775,33 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 				os.Remove(fullPath)
 			}
 
+			if remoteEntry.IsHardlinkRoot() {
+				hardLinkTable[len(hardLinkTable)-1].willExist = true
+			} else if remoteEntry.IsHardlinkedFrom() {
+				i, err := remoteEntry.GetHardlinkId()
+				if err !=  nil {
+					LOG_ERROR("RESTORE_HARDLINK", "Decode error for hardlinked entry %s, %v", remoteEntry.Path, err)
+					return 0
+				}
+				if !hardLinkTable[i].willExist {
+					hardLinkTable[i] = hardLinkEntry{remoteEntry, true}
+				} else {
+					sourcePath := joinPath(top, hardLinkTable[i].entry.Path)
+					LOG_INFO("RESTORE_HARDLINK", "Hard linking %s to %s", fullPath, sourcePath)
+					if err := MakeHardlink(sourcePath, fullPath); err != nil {
+						LOG_ERROR("RESTORE_HARDLINK", "Failed to create hard link %s to %s %v", fullPath, sourcePath, err)
+						return 0
+					}
+					continue
+				}
+			}
+
 			if err := os.Symlink(remoteEntry.Link, fullPath); err != nil {
 				LOG_ERROR("RESTORE_SYMLINK", "Can't create symlink %s: %v", remoteEntry.Path, err)
 				return 0
 			}
 			remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
+
 			LOG_TRACE("DOWNLOAD_DONE", "Symlink %s updated", remoteEntry.Path)
 		} else if remoteEntry.IsDir() {
 
@@ -814,20 +840,21 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
 		} else {
 			if remoteEntry.IsHardlinkRoot() {
-				hardLinkTable[len(hardLinkTable)-1] = hardLinkEntry{remoteEntry, true}
+				hardLinkTable[len(hardLinkTable)-1].willExist = true
 			} else if remoteEntry.IsHardlinkedFrom() {
-				i, err := strconv.ParseUint(remoteEntry.Link, 16, 64)
+				i, err := remoteEntry.GetHardlinkId()
 				if err !=  nil {
-					LOG_ERROR("RESTORE_HARDLINK", "Decode error in hardlink entry, expected hex int, got %s", remoteEntry.Link)
+					LOG_ERROR("RESTORE_HARDLINK", "Decode error for hardlinked entry %s, %v", remoteEntry.Path, err)
 					return 0
 				}
-				if !hardLinkTable[i].willDownload {
+				if !hardLinkTable[i].willExist {
 					hardLinkTable[i] = hardLinkEntry{remoteEntry, true}
 				} else {
 					hardLinks = append(hardLinks, remoteEntry)
 					continue
 				}
 			}
+
 			// We can't download files here since fileEntries needs to be sorted
 			fileEntries = append(fileEntries, remoteEntry)
 			totalFileSize += remoteEntry.Size
@@ -948,11 +975,32 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 	}
 
 	for _, linkEntry := range hardLinks {
-		i, _ := strconv.ParseUint(linkEntry.Link, 16, 64)
+
+		i, _ := linkEntry.GetHardlinkId()
 		sourcePath := joinPath(top, hardLinkTable[i].entry.Path)
 		fullPath := joinPath(top, linkEntry.Path)
-		LOG_INFO("RESTORE_HARDLINK", "Hard linking %s to %s", fullPath, sourcePath)
-		if err := os.Link(sourcePath, fullPath); err != nil {
+
+		if stat, _ := os.Lstat(fullPath); stat != nil {
+			sourceStat, _ := os.Lstat(sourcePath)
+			if os.SameFile(stat, sourceStat) {
+				continue
+			}
+
+			if sourceStat == nil {
+				LOG_WERROR(allowFailures, "RESTORE_HARDLINK",
+					"Target %s for hardlink %s is missing", sourcePath, linkEntry.Path)
+				continue
+			}
+			if !overwrite {
+				LOG_WERROR(allowFailures, "DOWNLOAD_OVERWRITE",
+					"File %s already exists.  Please specify the -overwrite option to overwrite", linkEntry.Path)
+				continue
+			}
+			os.Remove(fullPath)
+		}
+
+		LOG_DEBUG("RESTORE_HARDLINK", "Hard linking %s to %s", fullPath, sourcePath)
+		if err := MakeHardlink(sourcePath, fullPath); err != nil {
 			LOG_ERROR("RESTORE_HARDLINK", "Failed to create hard link %s to %s", fullPath, sourcePath)
 			return 0
 		}
@@ -1142,10 +1190,10 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 			entry.StartChunk -= lastEndChunk
 			lastEndChunk = entry.EndChunk
 			entry.EndChunk = delta
-		} else if entry.IsHardlinkedFrom() {
-			i, err := strconv.ParseUint(entry.Link, 16, 64)
+		} else if entry.IsHardlinkedFrom() && !entry.IsLink() {
+			i, err := entry.GetHardlinkId()
 			if err !=  nil {
-				LOG_ERROR("SNAPSHOT_UPLOAD", "Decode error in hardlink entry, expected hex int, got %s", entry.Link)
+				LOG_ERROR("SNAPSHOT_UPLOAD", "Decode error for hardlinked entry %s, %v", entry.Link, err)
 				return err
 			}
 
