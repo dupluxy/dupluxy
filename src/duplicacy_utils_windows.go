@@ -125,6 +125,10 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 	return nil
 }
 
+func (entry *Entry) FmtSpecial() string {
+	return ""
+}
+
 func MakeHardlink(source string, target string) error {
 	return os.Link(source, target)
 }
