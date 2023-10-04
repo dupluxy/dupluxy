@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	entrySymHardLinkRootChunkMarker   = -72
-	entrySymHardLinkTargetChunkMarker = -73
+	entrySymHardLinkRootChunkMarker   = -9
+	entrySymHardLinkTargetChunkMarker = -10
 )
 
 // This is the hidden directory in the repository for storing various files.
