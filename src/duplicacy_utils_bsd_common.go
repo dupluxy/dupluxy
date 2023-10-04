@@ -25,13 +25,16 @@ func (entry *Entry) ReadAttributes(top string) {
 	if err != nil {
 		return
 	}
-	attributes, _ := xattr.LList(fullPath)
-	if len(attributes) > 0 {
-		entry.Attributes = &map[string][]byte{}
-		for _, name := range attributes {
-			attribute, err := xattr.LGet(fullPath, name)
-			if err == nil {
-				(*entry.Attributes)[name] = attribute
+
+	if !entry.IsSpecial() {
+		attributes, _ := xattr.LList(fullPath)
+		if len(attributes) > 0 {
+			entry.Attributes = &map[string][]byte{}
+			for _, name := range attributes {
+				attribute, err := xattr.LGet(fullPath, name)
+				if err == nil {
+					(*entry.Attributes)[name] = attribute
+				}
 			}
 		}
 	}
@@ -41,25 +44,27 @@ func (entry *Entry) ReadAttributes(top string) {
 }
 
 func (entry *Entry) SetAttributesToFile(fullPath string) {
-	names, _ := xattr.LList(fullPath)
-	for _, name := range names {
-		newAttribute, found := (*entry.Attributes)[name]
-		if found {
-			oldAttribute, _ := xattr.LGet(fullPath, name)
-			if !bytes.Equal(oldAttribute, newAttribute) {
-				xattr.LSet(fullPath, name, newAttribute)
+	if !entry.IsSpecial() {
+		names, _ := xattr.LList(fullPath)
+		for _, name := range names {
+			newAttribute, found := (*entry.Attributes)[name]
+			if found {
+				oldAttribute, _ := xattr.LGet(fullPath, name)
+				if !bytes.Equal(oldAttribute, newAttribute) {
+					xattr.LSet(fullPath, name, newAttribute)
+				}
+				delete(*entry.Attributes, name)
+			} else {
+				xattr.LRemove(fullPath, name)
 			}
-			delete(*entry.Attributes, name)
-		} else {
-			xattr.LRemove(fullPath, name)
 		}
-	}
 
-	for name, attribute := range *entry.Attributes {
-		if len(name) > 0 && name[0] == '\x00' {
-			continue
+		for name, attribute := range *entry.Attributes {
+			if len(name) > 0 && name[0] == '\x00' {
+				continue
+			}
+			xattr.LSet(fullPath, name, attribute)
 		}
-		xattr.LSet(fullPath, name, attribute)
 	}
 	if err := entry.restoreLateFileFlags(fullPath); err != nil {
 		LOG_DEBUG("ATTR_RESTORE", "Could not restore flags for file %s: %v", fullPath, err)
