@@ -516,7 +516,7 @@ func (entry *Entry) IsLink() bool {
 }
 
 func (entry *Entry) IsSpecial() bool {
-	return entry.Mode&uint32(os.ModeNamedPipe|os.ModeDevice|os.ModeCharDevice) != 0
+	return entry.Mode&uint32(os.ModeNamedPipe|os.ModeDevice|os.ModeCharDevice|os.ModeSocket) != 0
 }
 
 func (entry *Entry) IsFileOrSpecial() bool {
@@ -805,9 +805,6 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 
 	for _, f := range files {
 		if f.Name() == DUPLICACY_DIRECTORY {
-			continue
-		}
-		if f.Mode()&os.ModeSocket != 0 {
 			continue
 		}
 

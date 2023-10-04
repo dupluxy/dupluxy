@@ -65,21 +65,6 @@ func (entry *Entry) GetRdev() uint64 {
 	return uint64(entry.StartChunk) | uint64(entry.StartOffset)<<32
 }
 
-func (entry *Entry) RestoreSpecial(fullPath string) error {
-	mode := entry.Mode & uint32(fileModeMask)
-
-	if entry.Mode&uint32(os.ModeNamedPipe) != 0 {
-		mode |= syscall.S_IFIFO
-	} else if entry.Mode&uint32(os.ModeCharDevice) != 0 {
-		mode |= syscall.S_IFCHR
-	} else if entry.Mode&uint32(os.ModeDevice) != 0 {
-		mode |= syscall.S_IFBLK
-	} else {
-		return nil
-	}
-	return syscall.Mknod(fullPath, mode, int(entry.GetRdev()))
-}
-
 func (entry *Entry) IsSameSpecial(fileInfo os.FileInfo) bool {
 	stat := fileInfo.Sys().(*syscall.Stat_t)
 	if stat == nil {
