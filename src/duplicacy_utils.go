@@ -7,14 +7,15 @@ package duplicacy
 import (
 	"bufio"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
-	"runtime"
 
 	"github.com/gilbertchen/gopass"
 	"golang.org/x/crypto/pbkdf2"
@@ -56,7 +57,7 @@ func IsEmptyFilter(pattern string) bool {
 }
 
 func IsUnspecifiedFilter(pattern string) bool {
-	if pattern[0] != '+' && pattern[0] != '-' && !strings.HasPrefix(pattern, "i:") && !strings.HasPrefix(pattern, "e:")  {
+	if pattern[0] != '+' && pattern[0] != '-' && !strings.HasPrefix(pattern, "i:") && !strings.HasPrefix(pattern, "e:") {
 		return true
 	} else {
 		return false
@@ -275,7 +276,6 @@ func SavePassword(preference Preference, passwordType string, password string) {
 // The following code was modified from the online article  'Matching Wildcards: An Algorithm', by Kirk J. Krauss,
 // Dr. Dobb's, August 26, 2008. However, the version in the article doesn't handle cases like matching 'abcccd'
 // against '*ccd', and the version here fixed that issue.
-//
 func matchPattern(text string, pattern string) bool {
 
 	textLength := len(text)
@@ -469,8 +469,39 @@ func PrintMemoryUsage() {
 		runtime.ReadMemStats(&m)
 
 		LOG_INFO("MEMORY_STATS", "Currently allocated: %s, total allocated: %s, system memory: %s, number of GCs: %d",
-		         PrettySize(int64(m.Alloc)), PrettySize(int64(m.TotalAlloc)), PrettySize(int64(m.Sys)), m.NumGC)
+			PrettySize(int64(m.Alloc)), PrettySize(int64(m.TotalAlloc)), PrettySize(int64(m.Sys)), m.NumGC)
 
 		time.Sleep(time.Second)
 	}
+}
+
+func (entry *Entry) dump() map[string]interface{} {
+
+	object := make(map[string]interface{})
+
+	object["path"] = entry.Path
+	object["size"] = entry.Size
+	object["time"] = entry.Time
+	object["mode"] = entry.Mode
+	object["hash"] = entry.Hash
+	object["link"] = entry.Link
+
+	object["content"] = fmt.Sprintf("%d:%d:%d:%d",
+		entry.StartChunk, entry.StartOffset, entry.EndChunk, entry.EndOffset)
+
+	if entry.UID != -1 && entry.GID != -1 {
+		object["uid"] = entry.UID
+		object["gid"] = entry.GID
+	}
+
+	if entry.Attributes != nil && len(*entry.Attributes) > 0 {
+		object["attributes"] = entry.Attributes
+	}
+
+	return object
+}
+
+func (entry *Entry) dumpString() string {
+	data, _ := json.Marshal(entry.dump())
+	return string(data)
 }

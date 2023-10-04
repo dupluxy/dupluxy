@@ -11,6 +11,8 @@ import (
 	"os"
 	"path"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 func Readlink(path string) (isRegular bool, s string, err error) {
@@ -45,7 +47,7 @@ func SetOwner(fullPath string, entry *Entry, fileInfo *os.FileInfo) bool {
 }
 
 func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
-	if fileInfo.Mode() & (os.ModeDevice | os.ModeCharDevice) == 0 {
+	if fileInfo.Mode()&(os.ModeDevice|os.ModeCharDevice) == 0 {
 		return true
 	}
 	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
@@ -62,16 +64,20 @@ func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
 func (entry *Entry) RestoreSpecial(fullPath string) error {
 	mode := entry.Mode & uint32(fileModeMask)
 
-	if entry.Mode & uint32(os.ModeNamedPipe) != 0 {
+	if entry.Mode&uint32(os.ModeNamedPipe) != 0 {
 		mode |= syscall.S_IFIFO
-	} else if entry.Mode & uint32(os.ModeCharDevice) != 0 {
+	} else if entry.Mode&uint32(os.ModeCharDevice) != 0 {
 		mode |= syscall.S_IFCHR
 	} else if entry.Mode & uint32(os.ModeDevice) != 0 {
 		mode |= syscall.S_IFBLK
 	} else {
 		return nil
 	}
-	return syscall.Mknod(fullPath, mode, int(uint64(entry.StartChunk) | uint64(entry.StartOffset) << 32))
+	return syscall.Mknod(fullPath, mode, int(uint64(entry.StartChunk)|uint64(entry.StartOffset)<<32))
+}
+
+func MakeHardlink(source string, target string) error {
+	return unix.Linkat(unix.AT_FDCWD, source, unix.AT_FDCWD, target, 0)
 }
 
 func joinPath(components ...string) string {

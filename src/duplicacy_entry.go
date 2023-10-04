@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -21,6 +22,11 @@ import (
 	"time"
 
 	"github.com/vmihailenco/msgpack"
+)
+
+const (
+	entrySymHardLinkRootChunkMarker   = -72
+	entrySymHardLinkTargetChunkMarker = -73
 )
 
 // This is the hidden directory in the repository for storing various files.
@@ -518,11 +524,23 @@ func (entry *Entry) IsComplete() bool {
 }
 
 func (entry *Entry) IsHardlinkedFrom() bool {
-	return entry.IsFile() && len(entry.Link) > 0 && entry.Link != "/"
+	return (entry.IsFile() && len(entry.Link) > 0 && entry.Link != "/") || (entry.IsLink() && entry.StartChunk == entrySymHardLinkTargetChunkMarker)
 }
 
 func (entry *Entry) IsHardlinkRoot() bool {
-	return entry.IsFile() && entry.Link == "/"
+	return (entry.IsFile() && entry.Link == "/") || (entry.IsLink() && entry.StartChunk == entrySymHardLinkRootChunkMarker)
+}
+
+func (entry *Entry) GetHardlinkId() (int, error) {
+	if entry.IsLink() {
+		if entry.StartChunk != entrySymHardLinkTargetChunkMarker {
+			return 0, errors.New("Symlink entry not marked as hardlinked")
+		}
+		return entry.StartOffset, nil
+	} else {
+		i, err := strconv.ParseUint(entry.Link, 16, 64)
+		return int(i), err
+	}
 }
 
 func (entry *Entry) GetPermissions() os.FileMode {
@@ -789,6 +807,42 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 		if len(patterns) > 0 && !MatchPath(entry.Path, patterns) {
 			continue
 		}
+
+		if f.Mode()&(os.ModeNamedPipe|os.ModeSocket|os.ModeDevice) != 0 {
+			LOG_WARN("LIST_SKIP", "Skipped non-regular file %s", entry.Path)
+			skippedFiles = append(skippedFiles, entry.Path)
+			continue
+		}
+
+		var linkKey *listEntryLinkKey
+
+		if runtime.GOOS != "windows" && !entry.IsDir() {
+			if stat := f.Sys().(*syscall.Stat_t); stat != nil && stat.Nlink > 1 {
+				k := listEntryLinkKey{dev: uint64(stat.Dev), ino: uint64(stat.Ino)}
+				if linkIndex, seen := listingState.linkTable[k]; seen {
+					if linkIndex == -1 {
+						LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute (hardlink)", entry.Path)
+						continue
+					}
+					entry.Size = 0
+					if entry.IsLink() {
+						entry.StartChunk = entrySymHardLinkTargetChunkMarker
+						entry.StartOffset = linkIndex
+					} else {
+						entry.Link = strconv.FormatInt(int64(linkIndex), 16)
+					}
+				} else {
+					if entry.IsLink() {
+						entry.StartChunk = entrySymHardLinkRootChunkMarker
+					} else {
+						entry.Link = "/"
+					}
+					listingState.linkTable[k] = -1
+					linkKey = &k
+				}
+			}
+		}
+
 		if entry.IsLink() {
 			isRegular := false
 			isRegular, entry.Link, err = Readlink(joinPath(top, entry.Path))
@@ -827,24 +881,6 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 				LOG_WARN("LIST_DEV", "Failed to save device node %s", entry.Path)
 				skippedFiles = append(skippedFiles, entry.Path)
 				continue
-			}
-		}
-
-		var linkKey *listEntryLinkKey
-
-		if stat, ok := f.Sys().(*syscall.Stat_t); entry.IsFile() && ok && stat != nil && stat.Nlink > 1 {
-			k := listEntryLinkKey{dev: uint64(stat.Dev), ino: uint64(stat.Ino)}
-			if linkIndex, seen := listingState.linkTable[k]; seen {
-				if linkIndex == -1 {
-					LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute (hardlink)", entry.Path)
-					continue
-				}
-				entry.Size = 0
-				entry.Link = strconv.FormatInt(int64(linkIndex), 16)
-			} else {
-				entry.Link = "/"
-				listingState.linkTable[k] = -1
-				linkKey = &k
 			}
 		}
 
