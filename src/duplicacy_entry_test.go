@@ -172,6 +172,8 @@ func TestEntryOrder(t *testing.T) {
 		}
 	}
 
+	listingState := NewListingState()
+
 	directories := make([]*Entry, 0, 4)
 	directories = append(directories, CreateEntry("", 0, 0, 0))
 
@@ -182,7 +184,7 @@ func TestEntryOrder(t *testing.T) {
 	for len(directories) > 0 {
 		directory := directories[len(directories)-1]
 		directories = directories[:len(directories)-1]
-		subdirectories, _, err := ListEntries(testDir, directory.Path, nil, "", false, entryChannel)
+		subdirectories, _, err := ListEntries(testDir, directory.Path, nil, "", false, listingState, entryChannel)
 		if err != nil {
 			t.Errorf("ListEntries(%s, %s) returned an error: %s", testDir, directory.Path, err)
 		}
@@ -288,6 +290,8 @@ func TestEntryExcludeByAttribute(t *testing.T) {
 
 	for _, excludeByAttribute := range [2]bool{true, false} {
 		t.Logf("testing excludeByAttribute: %t", excludeByAttribute)
+
+		listingState := NewListingState()
 		directories := make([]*Entry, 0, 4)
 		directories = append(directories, CreateEntry("", 0, 0, 0))
 
@@ -298,7 +302,7 @@ func TestEntryExcludeByAttribute(t *testing.T) {
 		for len(directories) > 0 {
 			directory := directories[len(directories)-1]
 			directories = directories[:len(directories)-1]
-			subdirectories, _, err := ListEntries(testDir, directory.Path, nil, "", excludeByAttribute, entryChannel)
+			subdirectories, _, err := ListEntries(testDir, directory.Path, nil, "", excludeByAttribute, listingState, entryChannel)
 			if err != nil {
 				t.Errorf("ListEntries(%s, %s) returned an error: %s", testDir, directory.Path, err)
 			}
