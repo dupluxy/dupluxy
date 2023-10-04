@@ -710,11 +710,11 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 	var hardLinkTable []hardLinkEntry
 	var hardLinks []*Entry
 
-	restoreHardlink := func(entry *Entry, fullPath string) bool {
-		if entry.IsHardlinkRoot() {
+	restoreHardLink := func(entry *Entry, fullPath string) bool {
+		if entry.IsHardLinkRoot() {
 			hardLinkTable[len(hardLinkTable)-1].willExist = true
-		} else if entry.IsHardlinkedFrom() {
-			i, err := entry.GetHardlinkId()
+		} else if entry.IsHardLinkChild() {
+			i, err := entry.GetHardLinkId()
 			if err != nil {
 				LOG_ERROR("RESTORE_HARDLINK", "Decode error for hard link entry %s: %v", entry.Path, err)
 				return false
@@ -735,7 +735,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 
 	for remoteEntry := range remoteListingChannel {
 
-		if remoteEntry.IsHardlinkRoot() {
+		if remoteEntry.IsHardLinkRoot() {
 			hardLinkTable = append(hardLinkTable, hardLinkEntry{remoteEntry, false})
 		}
 
@@ -782,7 +782,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 					isRegular, link, err := Readlink(fullPath)
 					if err == nil && link == remoteEntry.Link && !isRegular {
 						remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
-						if remoteEntry.IsHardlinkRoot() {
+						if remoteEntry.IsHardLinkRoot() {
 							hardLinkTable[len(hardLinkTable)-1].willExist = true
 						}
 						continue
@@ -798,7 +798,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 				os.Remove(fullPath)
 			}
 
-			if restoreHardlink(remoteEntry, fullPath) {
+			if restoreHardLink(remoteEntry, fullPath) {
 				continue
 			}
 
@@ -833,7 +833,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			if stat, _ := os.Lstat(fullPath); stat != nil {
 				if remoteEntry.IsSameSpecial(stat) {
 					remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
-					if remoteEntry.IsHardlinkRoot() {
+					if remoteEntry.IsHardLinkRoot() {
 						hardLinkTable[len(hardLinkTable)-1].willExist = true
 					}
 				}
@@ -845,7 +845,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 				os.Remove(fullPath)
 			}
 
-			if restoreHardlink(remoteEntry, fullPath) {
+			if restoreHardLink(remoteEntry, fullPath) {
 				continue
 			}
 
@@ -857,10 +857,10 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			LOG_TRACE("DOWNLOAD_DONE", "Special %s %s restored", remoteEntry.Path, remoteEntry.FmtSpecial())
 
 		} else {
-			if remoteEntry.IsHardlinkRoot() {
+			if remoteEntry.IsHardLinkRoot() {
 				hardLinkTable[len(hardLinkTable)-1].willExist = true
-			} else if remoteEntry.IsHardlinkedFrom() {
-				i, err := remoteEntry.GetHardlinkId()
+			} else if remoteEntry.IsHardLinkChild() {
+				i, err := remoteEntry.GetHardLinkId()
 				if err != nil {
 					LOG_ERROR("RESTORE_HARDLINK", "Decode error for hard link entry %s: %v", remoteEntry.Path, err)
 					return 0
@@ -994,7 +994,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 
 	for _, linkEntry := range hardLinks {
 
-		i, _ := linkEntry.GetHardlinkId()
+		i, _ := linkEntry.GetHardLinkId()
 		sourcePath := joinPath(top, hardLinkTable[i].entry.Path)
 		fullPath := joinPath(top, linkEntry.Path)
 
@@ -1199,7 +1199,7 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 			entry.StartChunk -= delta
 			entry.EndChunk -= delta
 
-			if entry.IsHardlinkRoot() {
+			if entry.IsHardLinkRoot() {
 				hardLinkTable = append(hardLinkTable, hardLinkEntry{entry, entry.StartChunk})
 			}
 
@@ -1207,8 +1207,8 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 			entry.StartChunk -= lastEndChunk
 			lastEndChunk = entry.EndChunk
 			entry.EndChunk = delta
-		} else if entry.IsHardlinkedFrom() {
-			i, err := entry.GetHardlinkId()
+		} else if entry.IsHardLinkChild() {
+			i, err := entry.GetHardLinkId()
 			if err != nil {
 				LOG_ERROR("SNAPSHOT_UPLOAD", "Decode error for hard link entry %s: %v", entry.Link, err)
 				return err
@@ -1224,7 +1224,7 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 			}
 			entry = entry.HardLinkTo(targetEntry, startChunk, endChunk)
 
-		} else if entry.IsHardlinkRoot() {
+		} else if entry.IsHardLinkRoot() {
 			hardLinkTable = append(hardLinkTable, hardLinkEntry{entry, 0})
 		}
 

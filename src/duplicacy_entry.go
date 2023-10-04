@@ -530,21 +530,21 @@ func (entry *Entry) IsComplete() bool {
 	return entry.Size >= 0
 }
 
-func (entry *Entry) IsHardlinkedFrom() bool {
+func (entry *Entry) IsHardLinkChild() bool {
 	return (entry.IsFile() && len(entry.Link) > 0 && entry.Link != "/") || (!entry.IsDir() && entry.EndChunk == entryHardLinkTargetChunkMarker)
 }
 
-func (entry *Entry) IsHardlinkRoot() bool {
+func (entry *Entry) IsHardLinkRoot() bool {
 	return (entry.IsFile() && entry.Link == "/") || (!entry.IsDir() && entry.EndChunk == entryHardLinkRootChunkMarker)
 }
 
-func (entry *Entry) GetHardlinkId() (int, error) {
+func (entry *Entry) GetHardLinkId() (int, error) {
 	if entry.IsFile() {
 		i, err := strconv.ParseUint(entry.Link, 16, 64)
 		return int(i), err
 	} else {
 		if entry.EndChunk != entryHardLinkTargetChunkMarker {
-			return 0, errors.New("Symlink entry not marked as hardlinked")
+			return 0, errors.New("Entry not marked as hard link child")
 		}
 		return entry.EndOffset, nil
 	}
@@ -823,7 +823,7 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 				k := listEntryLinkKey{dev: uint64(stat.Dev), ino: uint64(stat.Ino)}
 				if linkIndex, seen := listingState.linkTable[k]; seen {
 					if linkIndex == -1 {
-						LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute (hardlink)", entry.Path)
+						LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute (hard link)", entry.Path)
 						continue
 					}
 					entry.Size = 0
