@@ -8,10 +8,10 @@
 package duplicacy
 
 import (
+	"bytes"
 	"encoding/binary"
 	"os"
 	"path/filepath"
-	"bytes"
 	"syscall"
 
 	"github.com/pkg/xattr"
@@ -92,4 +92,3 @@ func (entry *Entry) RestoreEarlyDirFlags(path string) error {
 func (entry *Entry) RestoreEarlyFileFlags(f *os.File) error {
 	return nil
 }
-

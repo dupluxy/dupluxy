@@ -8,9 +8,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"os"
+	"path/filepath"
 	"syscall"
 	"unsafe"
-	"path/filepath"
 
 	"github.com/pkg/xattr"
 )
@@ -52,7 +52,7 @@ func ioctl(f *os.File, request uintptr, attrp *uint32) error {
 }
 
 type xattrHandle struct {
-	f *os.File
+	f        *os.File
 	fullPath string
 }
 

@@ -62,7 +62,7 @@ func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
 }
 
 func (entry *Entry) GetRdev() uint64 {
-	return uint64(entry.StartChunk)|uint64(entry.StartOffset)<<32
+	return uint64(entry.StartChunk) | uint64(entry.StartOffset)<<32
 }
 
 func (entry *Entry) RestoreSpecial(fullPath string) error {
@@ -72,7 +72,7 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 		mode |= syscall.S_IFIFO
 	} else if entry.Mode&uint32(os.ModeCharDevice) != 0 {
 		mode |= syscall.S_IFCHR
-	} else if entry.Mode & uint32(os.ModeDevice) != 0 {
+	} else if entry.Mode&uint32(os.ModeDevice) != 0 {
 		mode |= syscall.S_IFBLK
 	} else {
 		return nil

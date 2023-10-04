@@ -5,10 +5,10 @@
 package duplicacy
 
 import (
-	"os"
-	"syscall"
-	"strings"
 	"encoding/binary"
+	"os"
+	"strings"
+	"syscall"
 )
 
 func excludedByAttribute(attributes map[string][]byte) bool {
