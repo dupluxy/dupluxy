@@ -125,6 +125,10 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 	return nil
 }
 
+func MakeHardlink(source string, target string) error {
+	return os.Link(source, target)
+}
+
 func joinPath(components ...string) string {
 
 	combinedPath := `\\?\` + filepath.Join(components...)
