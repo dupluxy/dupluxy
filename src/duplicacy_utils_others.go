@@ -50,8 +50,8 @@ func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
 	if fileInfo.Mode()&(os.ModeDevice|os.ModeCharDevice) == 0 {
 		return true
 	}
-	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
-	if !ok || stat == nil {
+	stat := fileInfo.Sys().(*syscall.Stat_t)
+	if stat == nil {
 		return false
 	}
 	entry.Size = 0
@@ -59,6 +59,10 @@ func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
 	entry.StartChunk = int(rdev & 0xFFFFFFFF)
 	entry.StartOffset = int(rdev >> 32)
 	return true
+}
+
+func (entry *Entry) GetRdev() uint64 {
+	return uint64(entry.StartChunk)|uint64(entry.StartOffset)<<32
 }
 
 func (entry *Entry) RestoreSpecial(fullPath string) error {
@@ -73,7 +77,15 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 	} else {
 		return nil
 	}
-	return syscall.Mknod(fullPath, mode, int(uint64(entry.StartChunk)|uint64(entry.StartOffset)<<32))
+	return syscall.Mknod(fullPath, mode, int(entry.GetRdev()))
+}
+
+func (entry *Entry) IsSameSpecial(fileInfo os.FileInfo) bool {
+	stat := fileInfo.Sys().(*syscall.Stat_t)
+	if stat == nil {
+		return false
+	}
+	return (uint32(fileInfo.Mode()) == entry.Mode) && (uint64(stat.Rdev) == entry.GetRdev())
 }
 
 func MakeHardlink(source string, target string) error {
