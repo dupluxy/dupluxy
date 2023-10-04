@@ -519,16 +519,20 @@ func (entry *Entry) IsSpecial() bool {
 	return entry.Mode&uint32(os.ModeNamedPipe|os.ModeDevice|os.ModeCharDevice) != 0
 }
 
+func (entry *Entry) IsFileOrSpecial() bool {
+	return entry.Mode&uint32(os.ModeDir|os.ModeSymlink|os.ModeIrregular) == 0
+}
+
 func (entry *Entry) IsComplete() bool {
 	return entry.Size >= 0
 }
 
 func (entry *Entry) IsHardlinkedFrom() bool {
-	return (entry.IsFile() && len(entry.Link) > 0 && entry.Link != "/") || (entry.IsLink() && entry.StartChunk == entrySymHardLinkTargetChunkMarker)
+	return (entry.IsFileOrSpecial() && len(entry.Link) > 0 && entry.Link != "/") || (entry.IsLink() && entry.StartChunk == entrySymHardLinkTargetChunkMarker)
 }
 
 func (entry *Entry) IsHardlinkRoot() bool {
-	return (entry.IsFile() && entry.Link == "/") || (entry.IsLink() && entry.StartChunk == entrySymHardLinkRootChunkMarker)
+	return (entry.IsFileOrSpecial() && entry.Link == "/") || (entry.IsLink() && entry.StartChunk == entrySymHardLinkRootChunkMarker)
 }
 
 func (entry *Entry) GetHardlinkId() (int, error) {
@@ -601,6 +605,11 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 		}
 	}
 
+	if entry.Attributes != nil && len(*entry.Attributes) > 0 {
+		entry.SetAttributesToFile(fullPath)
+	}
+
+
 	// Only set the time if the file is not a symlink
 	if !entry.IsLink() && (*fileInfo).ModTime().Unix() != entry.Time {
 		modifiedTime := time.Unix(entry.Time, 0)
@@ -609,10 +618,6 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 			LOG_ERROR("RESTORE_CHTIME", "Failed to set the modification time: %v", err)
 			return false
 		}
-	}
-
-	if entry.Attributes != nil && len(*entry.Attributes) > 0 {
-		entry.SetAttributesToFile(fullPath)
 	}
 
 	return true
@@ -803,14 +808,12 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 		if f.Name() == DUPLICACY_DIRECTORY {
 			continue
 		}
-		entry := CreateEntryFromFileInfo(f, normalizedPath)
-		if len(patterns) > 0 && !MatchPath(entry.Path, patterns) {
+		if f.Mode() & os.ModeSocket != 0 {
 			continue
 		}
 
-		if f.Mode()&(os.ModeNamedPipe|os.ModeSocket|os.ModeDevice) != 0 {
-			LOG_WARN("LIST_SKIP", "Skipped non-regular file %s", entry.Path)
-			skippedFiles = append(skippedFiles, entry.Path)
+		entry := CreateEntryFromFileInfo(f, normalizedPath)
+		if len(patterns) > 0 && !MatchPath(entry.Path, patterns) {
 			continue
 		}
 
@@ -873,9 +876,6 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 				}
 				entry = newEntry
 			}
-		} else if entry.Mode & uint32(os.ModeSocket) != 0 {
-			// no reason to issue a warning for what should always be a transient file anyways
-			continue
 		} else if entry.IsSpecial() {
 			if !entry.ReadSpecial(f) {
 				LOG_WARN("LIST_DEV", "Failed to save device node %s", entry.Path)
