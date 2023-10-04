@@ -2568,7 +2568,7 @@ func (manager *SnapshotManager) CheckSnapshot(snapshot *Snapshot) (err error) {
 		}
 
 		if entry.EndChunk < entry.StartChunk {
-			fmt.Errorf("The file %s starts at chunk %d and ends at chunk %d",
+			err = fmt.Errorf("The file %s starts at chunk %d and ends at chunk %d",
 				entry.Path, entry.StartChunk, entry.EndChunk)
 			return false
 		}
