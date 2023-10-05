@@ -608,10 +608,6 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 		}
 	}
 
-	if entry.Attributes != nil && len(*entry.Attributes) > 0 {
-		entry.SetAttributesToFile(fullPath)
-	}
-
 	// Only set the time if the file is not a symlink
 	if !entry.IsLink() && (*fileInfo).ModTime().Unix() != entry.Time {
 		modifiedTime := time.Unix(entry.Time, 0)
@@ -620,6 +616,10 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 			LOG_ERROR("RESTORE_CHTIME", "Failed to set the modification time: %v", err)
 			return false
 		}
+	}
+
+	if entry.Attributes != nil && len(*entry.Attributes) > 0 {
+		entry.SetAttributesToFile(fullPath)
 	}
 
 	return true

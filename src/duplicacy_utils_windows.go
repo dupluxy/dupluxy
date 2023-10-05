@@ -117,8 +117,12 @@ func (entry *Entry) SetAttributesToFile(fullPath string) {
 
 }
 
-func (entry *Entry) ReadDeviceNode(fileInfo os.FileInfo) bool {
-	return nil
+func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
+	return true
+}
+
+func (entry *Entry) IsSameSpecial(fileInfo os.FileInfo) bool {
+	return false
 }
 
 func (entry *Entry) RestoreSpecial(fullPath string) error {
@@ -148,8 +152,8 @@ func SplitDir(fullPath string) (dir string, file string) {
 	return fullPath[:i+1], fullPath[i+1:]
 }
 
-func (entry *Entry) ReadFileFlags(f *os.File) error {
-	return nil
+func excludedByAttribute(attributes map[string][]byte) bool {
+	return false
 }
 
 func (entry *Entry) RestoreEarlyDirFlags(path string) error {
@@ -157,9 +161,5 @@ func (entry *Entry) RestoreEarlyDirFlags(path string) error {
 }
 
 func (entry *Entry) RestoreEarlyFileFlags(f *os.File) error {
-	return nil
-}
-
-func (entry *Entry) RestoreLateFileFlags(f *os.File) error {
 	return nil
 }
