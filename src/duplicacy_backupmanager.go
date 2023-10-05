@@ -7,7 +7,6 @@ package duplicacy
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -1068,55 +1067,6 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 	chunkOperator.Stop()
 
 	return 0
-}
-
-// fileEncoder encodes one file at a time to avoid loading the full json description of the entire file tree
-// in the memory
-type fileEncoder struct {
-	top            string
-	readAttributes bool
-	files          []*Entry
-	currentIndex   int
-	buffer         *bytes.Buffer
-}
-
-// Read reads data from the embedded buffer
-func (encoder fileEncoder) Read(data []byte) (n int, err error) {
-	return encoder.buffer.Read(data)
-}
-
-// NextFile switches to the next file and generates its json description in the buffer.  It also takes care of
-// the ending ']' and the commas between files.
-func (encoder *fileEncoder) NextFile() (io.Reader, bool) {
-	if encoder.currentIndex == len(encoder.files) {
-		return nil, false
-	}
-	if encoder.currentIndex == len(encoder.files)-1 {
-		encoder.buffer.Write([]byte("]"))
-		encoder.currentIndex++
-		return encoder, true
-	}
-
-	encoder.currentIndex++
-	entry := encoder.files[encoder.currentIndex]
-	if encoder.readAttributes {
-		entry.ReadAttributes(encoder.top)
-	}
-	description, err := json.Marshal(entry)
-	if err != nil {
-		LOG_FATAL("SNAPSHOT_ENCODE", "Failed to encode file %s: %v", encoder.files[encoder.currentIndex].Path, err)
-		return nil, false
-	}
-
-	if encoder.readAttributes {
-		entry.Attributes = nil
-	}
-
-	if encoder.currentIndex != 0 {
-		encoder.buffer.Write([]byte(","))
-	}
-	encoder.buffer.Write(description)
-	return encoder, true
 }
 
 // UploadSnapshot uploads the specified snapshot to the storage. It turns Files, ChunkHashes, and ChunkLengths into
