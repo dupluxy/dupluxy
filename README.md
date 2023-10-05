@@ -1,3 +1,45 @@
+# DuplicacyIX Edition
+
+A Duplicacy derivative with improved support for preserving state on UNIX like systems. Produces snapshots compatible with Duplicacy.
+
+NOTE: This project/repository is not affiliated with nor endorsed by Duplicacy, Acrosync or their associated rights holders. It is developed and distributed in accordance with the associated LICENSE. Commercial use may require purchase of a license.
+
+## Added Features
+* Support for hard links. Hard links are tracked during local file listing. All linked entries will reuse the same chunk data, so this can give a time and space saving benefit as hard-linked files only need to be packed once. Hard links are supported to everything (regular files, symlinks, special files) except directories.
+* File flags, that is chflags(1) on BSD/Darwin, and ioctl_iflags(2) on Linux. The primary use case is to preserve iflags used by btrfs for no-COW and compression.
+* Special files (character/block devices, FIFOs, and sockets) are preserved along with associated metadata.
+
+## Assorted Changes
+* The S3 backend uses the newer ListObjectsV2 interface originally because of a bug with some providers with the old, obsolete interface, but now because this API is considerably faster on a number of providers tested.
+* B2 client max listing per request increased to 10,000
+* A fix for the exclude_by_attribute feature on BSD/Unix which has been broken upstream for ages.
+
+## Snapshot Format
+The generated preserves snapshots are backward compatible with vanilla versions of duplicacy and also do not increase the encoding size of metadata significantly. Unfortunately duplicacy does not have a formal forward-compatible snapshot versioning system, but that's not too surprising. This does mean that the data encoding is somewhat abusive of the existing format.
+
+### Hard links
+The storage differs for regular files vs. every other target. Entry records contain a `Link` string field for the symlink target. When a likely hard linked file is encountered (`st_nlink > 1`) that entry is marked as a hard link root with the string "/" in the `Link` field and it is placed in an array, the index of this array will serve as a link address. Plain duplicacy only uses the `Link` field for symlinks. Files that hard link to this initial file have the index of the array of root files encoded as a base-16 integer into their `Link` field. These entries are placed in the snapshot with valid start/end chunk and offset values and all metadata is cloned so official Duplicacy will recover them as regular files with all metadata, it just will never make hard links.
+For hard links to symlinks and special files, the `Link` isn't used. Instead, since these files never have content the `EndChunk/EndOffset` fields are used. A magic number (-9) is encoded in `EndChunk` for root entries and (-10) for clone/child entries. The `EndOffset` contains the index into the root entry array.
+
+### Special Files
+Duplicacy simply skips special files. DuplicacyIX does not skip them. The `st_rdev` (device number) for character and block devices is stored with the lower 32-bits in `StartChunk` and the upper 32-bits in `StartOffset`, though no actual supported system uses anything bigger than 32-bits. The packing of this quantity is OS specific, but major, minor numbers are also OS specific.
+
+### File flags
+Files flags are stored in the extended attributes table with a short (2 character) OS specific key prefixed with a null-byte. Duplicacy will try to set these xattrs, however they will be ignored as the name appears to be empty with the initial null-byte.
+
+
+## Motivation
+Arguably system root directories are better preserved in a filesystem image format, however the line becomes blurred for home and data directories the former which tends to become a magnet for all kinds of data layout. This gives the option of a convenient random addressable cloud backup with easy partial restore while also being able to backup an nearly exact replica for use in disaster recovery. Nearly exact, the only metadata not preserved are times other than mtimes and ACLs on BSD-like systems.
+Hard links are a pain and might be better to not exist but in actual use, but things like git repos and SDKs have a tendency to use them. Often one has no choice but to deal with them, and forgoing preserving them is painful.
+File flags are primarily for the use case of btrfs snapshot backups, specifically with regards to compression and no-COW. The implementation applies certain flags immediately on open so that these flags apply to written blocks.
+Special files serve a couple purposes. Backup of FIFOs and sockets are primarily for preserving metadata since these files have no useful content and can always be created on the fly. The other is support for backup of overlay2 file systems. overlay2 uses character mode dev-nodes for whiteouts in addition to trusted namespace xattrs. DuplicacyIX should be able to faithfully reproduce overlay2 fs layers.
+
+## Caveats/TODO
+* Improve command line options around processing hard links and special files, especially for restore. Right now if you don't have `mknod` capabilities and the snapshot has special device files you're going to need to use filters.
+* File flags for immutability aren't handled smartly. Specifically immutable and append only files will break badly with hardlinks, since hardlink creation is deferred to after flags application. The solution is not complicated but this is not a pressing use case.
+* Some corner cases of replacing existing files with hard links might end up breaking links if not doing a full restore. Again not a pressing use case. For the primary use of disaster recovery of large portions or an entire volume it works fine.
+* Possibly encode ACLs on Mac OS/FreeBSD. On Linux the crappy POSIX 1e ACLs that no one should use are picked up in the xattrs.
+
 # Duplicacy: A lock-free deduplication cloud backup tool
 
 Duplicacy is a new generation cross-platform cloud backup tool based on the idea of [Lock-Free Deduplication](https://github.com/gilbertchen/duplicacy/wiki/Lock-Free-Deduplication).
