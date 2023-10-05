@@ -110,6 +110,12 @@ func SetOwner(fullPath string, entry *Entry, fileInfo *os.FileInfo) bool {
 	return true
 }
 
+type listEntryLinkKey struct{}
+
+func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked bool) {
+	return
+}
+
 func (entry *Entry) ReadAttributes(top string) {
 }
 
