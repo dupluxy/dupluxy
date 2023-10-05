@@ -47,6 +47,25 @@ func SetOwner(fullPath string, entry *Entry, fileInfo *os.FileInfo) bool {
 	return true
 }
 
+type listEntryLinkKey struct {
+	dev uint64
+	ino uint64
+}
+
+func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked bool) {
+	if entry.IsDir() {
+		return
+	}
+	stat := f.Sys().(*syscall.Stat_t)
+	if stat == nil || stat.Nlink < 2 {
+		return
+	}
+	key.dev = uint64(stat.Dev)
+	key.ino = uint64(stat.Ino)
+	linked = true
+	return
+}
+
 func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
 	if fileInfo.Mode()&(os.ModeDevice|os.ModeCharDevice) == 0 {
 		return true

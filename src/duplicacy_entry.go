@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/vmihailenco/msgpack"
@@ -752,11 +751,6 @@ func (files FileInfoCompare) Less(i, j int) bool {
 	}
 }
 
-type listEntryLinkKey struct {
-	dev uint64
-	ino uint64
-}
-
 type ListingState struct {
 	linkIndex int
 	linkTable map[listEntryLinkKey]int // map unique inode details to initially found path
@@ -816,34 +810,30 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 			continue
 		}
 
-		var linkKey *listEntryLinkKey
-
-		if runtime.GOOS != "windows" && !entry.IsDir() {
-			if stat := f.Sys().(*syscall.Stat_t); stat != nil && stat.Nlink > 1 {
-				k := listEntryLinkKey{dev: uint64(stat.Dev), ino: uint64(stat.Ino)}
-				if linkIndex, seen := listingState.linkTable[k]; seen {
-					if linkIndex == -1 {
-						LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute (hard link)", entry.Path)
-						continue
-					}
-					entry.Size = 0
-					if entry.IsFile() {
-						entry.Link = strconv.FormatInt(int64(linkIndex), 16)
-					} else {
-						entry.EndChunk = entryHardLinkTargetChunkMarker
-						entry.EndOffset = linkIndex
-					}
-					listingChannel <- entry
+		linkKey, isHardLinked := entry.getHardLinkKey(f)
+		if isHardLinked {
+			if linkIndex, seen := listingState.linkTable[linkKey]; seen {
+				if linkIndex == -1 {
+					LOG_DEBUG("LIST_EXCLUDE", "%s was excluded or skipped (hard link)", entry.Path)
 					continue
-				} else {
-					if entry.IsFile() {
-						entry.Link = "/"
-					} else {
-						entry.EndChunk = entryHardLinkRootChunkMarker
-					}
-					listingState.linkTable[k] = -1
-					linkKey = &k
 				}
+
+				entry.Size = 0
+				if entry.IsFile() {
+					entry.Link = strconv.FormatInt(int64(linkIndex), 16)
+				} else {
+					entry.EndChunk = entryHardLinkTargetChunkMarker
+					entry.EndOffset = linkIndex
+				}
+				listingChannel <- entry
+				continue
+			} else {
+				if entry.IsFile() {
+					entry.Link = "/"
+				} else {
+					entry.EndChunk = entryHardLinkRootChunkMarker
+				}
+				listingState.linkTable[linkKey] = -1
 			}
 		}
 
@@ -892,8 +882,8 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 			continue
 		}
 
-		if linkKey != nil {
-			listingState.linkTable[*linkKey] = listingState.linkIndex
+		if isHardLinked {
+			listingState.linkTable[linkKey] = listingState.linkIndex
 			listingState.linkIndex++
 		}
 
