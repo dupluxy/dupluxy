@@ -836,6 +836,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 					if remoteEntry.IsHardLinkRoot() {
 						hardLinkTable[len(hardLinkTable)-1].willExist = true
 					}
+					continue
 				}
 				if !overwrite {
 					LOG_WERROR(allowFailures, "DOWNLOAD_OVERWRITE",
