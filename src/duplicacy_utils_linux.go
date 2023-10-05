@@ -121,6 +121,11 @@ func (entry *Entry) ReadAttributes(top string) {
 	x.f.Close()
 }
 
+func excludedByAttribute(attributes map[string][]byte) bool {
+	_, ok := attributes["user.duplicacy_exclude"]
+	return ok
+}
+
 func (entry *Entry) SetAttributesToFile(fullPath string) {
 	x := xattrHandle{nil, fullPath}
 	if !entry.IsLink() {
@@ -234,9 +239,4 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 		return nil
 	}
 	return syscall.Mknod(fullPath, mode, int(entry.GetRdev()))
-}
-
-func excludedByAttribute(attributes map[string][]byte) bool {
-	_, ok := attributes["user.duplicacy_exclude"]
-	return ok
 }

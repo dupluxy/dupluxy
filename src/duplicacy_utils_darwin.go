@@ -5,22 +5,109 @@
 package duplicacy
 
 import (
+	"bytes"
 	"encoding/binary"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/pkg/xattr"
 )
+
+const darwin_UF_NODUMP = 0x1
+
+const darwinFileFlagsKey = "\x00bf"
 
 func excludedByAttribute(attributes map[string][]byte) bool {
 	value, ok := attributes["com.apple.metadata:com_apple_backup_excludeItem"]
-	return ok && strings.Contains(string(value), "com.apple.backupd")
+	excluded := ok && strings.Contains(string(value), "com.apple.backupd")
+	if !excluded {
+		value, ok := attributes[darwinFileFlagsKey]
+		excluded = ok && (binary.LittleEndian.Uint32(value) & darwin_UF_NODUMP) != 0
+	}
+	return excluded
+}
+
+func (entry *Entry) ReadAttributes(top string) {
+	fullPath := filepath.Join(top, entry.Path)
+	fileInfo, err := os.Lstat(fullPath)
+	if err != nil {
+		return
+	}
+
+	if !entry.IsSpecial() {
+		attributes, _ := xattr.LList(fullPath)
+		if len(attributes) > 0 {
+			entry.Attributes = &map[string][]byte{}
+			for _, name := range attributes {
+				attribute, err := xattr.LGet(fullPath, name)
+				if err == nil {
+					(*entry.Attributes)[name] = attribute
+				}
+			}
+		}
+	}
+	if err := entry.readFileFlags(fileInfo); err != nil {
+		LOG_INFO("ATTR_BACKUP", "Could not backup flags for file %s: %v", fullPath, err)
+	}
+}
+
+func (entry *Entry) SetAttributesToFile(fullPath string) {
+	if !entry.IsSpecial() {
+		names, _ := xattr.LList(fullPath)
+		for _, name := range names {
+			newAttribute, found := (*entry.Attributes)[name]
+			if found {
+				oldAttribute, _ := xattr.LGet(fullPath, name)
+				if !bytes.Equal(oldAttribute, newAttribute) {
+					xattr.LSet(fullPath, name, newAttribute)
+				}
+				delete(*entry.Attributes, name)
+			} else {
+				xattr.LRemove(fullPath, name)
+			}
+		}
+
+		for name, attribute := range *entry.Attributes {
+			if len(name) > 0 && name[0] == '\x00' {
+				continue
+			}
+			xattr.LSet(fullPath, name, attribute)
+		}
+	}
+	if err := entry.restoreLateFileFlags(fullPath); err != nil {
+		LOG_DEBUG("ATTR_RESTORE", "Could not restore flags for file %s: %v", fullPath, err)
+	}
+}
+
+func (entry *Entry) RestoreEarlyDirFlags(path string) error {
+	return nil
+}
+
+func (entry *Entry) RestoreEarlyFileFlags(f *os.File) error {
+	return nil
+}
+
+func (entry *Entry) readFileFlags(fileInfo os.FileInfo) error {
+	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
+	if ok && stat.Flags != 0 {
+		if entry.Attributes == nil {
+			entry.Attributes = &map[string][]byte{}
+		}
+		v := make([]byte, 4)
+		binary.LittleEndian.PutUint32(v, stat.Flags)
+		(*entry.Attributes)[darwinFileFlagsKey] = v
+		LOG_DEBUG("ATTR_READ", "Read flags 0x%x for %s", stat.Flags, entry.Path)
+	}
+	return nil
 }
 
 func (entry *Entry) restoreLateFileFlags(path string) error {
 	if entry.Attributes == nil {
 		return nil
 	}
-	if v, have := (*entry.Attributes)[bsdFileFlagsKey]; have {
+	if v, have := (*entry.Attributes)[darwinFileFlagsKey]; have {
 		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_SYMLINK, 0)
 		if err != nil {
 			return err
@@ -30,4 +117,19 @@ func (entry *Entry) restoreLateFileFlags(path string) error {
 		return err
 	}
 	return nil
+}
+
+func (entry *Entry) RestoreSpecial(fullPath string) error {
+	mode := entry.Mode & uint32(fileModeMask)
+
+	if entry.Mode&uint32(os.ModeNamedPipe) != 0 {
+		mode |= syscall.S_IFIFO
+	} else if entry.Mode&uint32(os.ModeCharDevice) != 0 {
+		mode |= syscall.S_IFCHR
+	} else if entry.Mode&uint32(os.ModeDevice) != 0 {
+		mode |= syscall.S_IFBLK
+	} else {
+		return nil
+	}
+	return syscall.Mknod(fullPath, mode, int(entry.GetRdev()))
 }
