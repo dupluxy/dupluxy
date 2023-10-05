@@ -591,6 +591,10 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 		}
 	}
 
+	if entry.Attributes != nil && len(*entry.Attributes) > 0 {
+		entry.SetAttributesToFile(fullPath)
+	}
+
 	// Note that chown can remove setuid/setgid bits so should be called before chmod
 	if setOwner {
 		if !SetOwner(fullPath, entry, fileInfo) {
@@ -617,9 +621,10 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 		}
 	}
 
-	if entry.Attributes != nil && len(*entry.Attributes) > 0 {
-		entry.SetAttributesToFile(fullPath)
-	}
+	// TODO Set flags last
+	// if entry.Attributes != nil && len(*entry.Attributes) > 0 {
+	// 	entry.SetFlagsToFile(fullPath)
+	// }
 
 	return true
 }
