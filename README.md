@@ -1,8 +1,8 @@
-# DuplicacyIX Edition
+# Dupluxe
 
 A Duplicacy derivative with improved support for preserving state on UNIX like systems. Produces snapshots compatible with Duplicacy.
 
-NOTE: This project/repository is not affiliated with nor endorsed by Duplicacy, Acrosync or their associated rights holders. It is developed and distributed in accordance with the associated LICENSE. Commercial use may require purchase of a license.
+NOTE: This project/repository is not affiliated with nor endorsed by Duplicacy, Acrosync or their associated rights holders. It is developed and distributed in accordance with the associated LICENSE. Commercial use may require purchase of a license from Acrosync.
 
 ## Added Features
 * Support for hard links. Hard links are tracked during local file listing. All linked entries will reuse the same chunk data, so this can give a time and space saving benefit as hard-linked files only need to be packed once. Hard links are supported to everything (regular files, symlinks, special files) except directories.
