@@ -98,7 +98,7 @@ func CreateEntryFromFileInfo(fileInfo os.FileInfo, directory string) *Entry {
 		Mode: uint32(mode),
 	}
 
-	GetOwner(entry, &fileInfo)
+	GetOwner(entry, fileInfo)
 
 	return entry
 }

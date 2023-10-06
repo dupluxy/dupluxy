@@ -105,7 +105,7 @@ func Readlink(path string) (isRegular bool, s string, err error) {
 	return false, s, nil
 }
 
-func GetOwner(entry *Entry, fileInfo *os.FileInfo) {
+func GetOwner(entry *Entry, fileInfo os.FileInfo) {
 	entry.UID = -1
 	entry.GID = -1
 }
