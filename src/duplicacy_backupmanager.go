@@ -826,7 +826,10 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 					return 0
 				}
 			}
-			remoteEntry.RestoreEarlyDirFlags(fullPath)
+			err = remoteEntry.RestoreEarlyDirFlags(fullPath, 0) // TODO: mask
+			if err != nil {
+				LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
+			}
 			directoryEntries = append(directoryEntries, remoteEntry)
 		} else if remoteEntry.IsSpecial() {
 			if stat, _ := os.Lstat(fullPath); stat != nil {
@@ -1297,7 +1300,10 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 					LOG_ERROR("DOWNLOAD_CREATE", "Failed to create the file %s for in-place writing: %v", fullPath, err)
 					return false, nil
 				}
-				entry.RestoreEarlyFileFlags(existingFile)
+				err = entry.RestoreEarlyFileFlags(existingFile, 0) // TODO: implement mask
+				if err != nil {
+					LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
+				}
 
 				n := int64(1)
 				// There is a go bug on Windows (https://github.com/golang/go/issues/21681) that causes Seek to fail
@@ -1481,7 +1487,10 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 				return false, nil
 			}
 		}
-		entry.RestoreEarlyFileFlags(existingFile)
+		err = entry.RestoreEarlyFileFlags(existingFile, 0) // TODO: implement mask
+		if err != nil {
+			LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
+		}
 
 		existingFile.Seek(0, 0)
 
@@ -1564,7 +1573,10 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 			LOG_ERROR("DOWNLOAD_OPEN", "Failed to open file for writing: %v", err)
 			return false, nil
 		}
-		entry.RestoreEarlyFileFlags(newFile)
+		err = entry.RestoreEarlyFileFlags(newFile, 0) // TODO: implement mask
+		if err != nil {
+			LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
+		}
 
 		hasher := manager.config.NewFileHasher()
 
