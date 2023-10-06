@@ -25,7 +25,6 @@ import (
 
 // BackupManager performs the two major operations, backup and restore, and passes other operations, mostly related to
 // snapshot management, to the snapshot manager.
-
 type BackupManager struct {
 	snapshotID string  // Unique id for each repository
 	storage    Storage // the storage for storing backups
@@ -40,6 +39,21 @@ type BackupManager struct {
 	excludeByAttribute bool   // don't backup file based on file attribute
 
 	cachePath string
+}
+
+type BackupOptions struct {
+}
+
+type RestoreOptions struct {
+	Threads        int
+	Patterns       []string
+	InPlace        bool
+	QuickMode      bool
+	Overwrite      bool
+	DeleteMode     bool
+	SetOwner       bool
+	ShowStatistics bool
+	AllowFailures  bool
 }
 
 func (manager *BackupManager) SetDryRun(dryRun bool) {
@@ -622,21 +636,26 @@ func (manager *BackupManager) Backup(top string, quickMode bool, threads int, ta
 }
 
 // Restore downloads the specified snapshot, compares it with what's on the repository, and then downloads
-// files that are different. 'base' is a directory that contains files at a different revision which can
-// serve as a local cache to avoid download chunks available locally.  It is perfectly ok for 'base' to be
-// the same as 'top'.  'quickMode' will bypass files with unchanged sizes and timestamps.  'deleteMode' will
-// remove local files that don't exist in the snapshot. 'patterns' is used to include/exclude certain files.
-func (manager *BackupManager) Restore(top string, revision int, inPlace bool, quickMode bool, threads int, overwrite bool,
-	deleteMode bool, setOwner bool, showStatistics bool, patterns []string, allowFailures bool) int {
+// files that are different.'QuickMode' will bypass files with unchanged sizes and timestamps. 'DeleteMode' will
+// remove local files that don't exist in the snapshot. 'Patterns' is used to include/exclude certain files.
+func (manager *BackupManager) Restore(top string, revision int, options RestoreOptions) int {
+	if options.Threads < 1 {
+		options.Threads = 1
+	}
+
+	patterns := options.Patterns
+
+	overwrite := options.Overwrite
+	allowFailures := options.AllowFailures
 
 	startTime := time.Now().Unix()
 
 	LOG_DEBUG("RESTORE_PARAMETERS", "top: %s, revision: %d, in-place: %t, quick: %t, delete: %t",
-		top, revision, inPlace, quickMode, deleteMode)
+		top, revision, options.InPlace, options.QuickMode, options.DeleteMode)
 
 	if !strings.HasPrefix(GetDuplicacyPreferencePath(), top) {
 		LOG_INFO("RESTORE_INPLACE", "Forcing in-place mode with a non-default preference path")
-		inPlace = true
+		options.InPlace = true
 	}
 
 	if len(patterns) > 0 {
@@ -678,7 +697,8 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 
 	localListingChannel := make(chan *Entry)
 	remoteListingChannel := make(chan *Entry)
-	chunkOperator := CreateChunkOperator(manager.config, manager.storage, manager.snapshotCache, showStatistics, false, threads, allowFailures)
+	chunkOperator := CreateChunkOperator(manager.config, manager.storage, manager.snapshotCache, options.ShowStatistics,
+		false, options.Threads, allowFailures)
 
 	LOG_INFO("RESTORE_INDEXING", "Indexing %s", top)
 	go func() {
@@ -763,7 +783,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 		}
 
 		if compareResult == 0 {
-			if quickMode && localEntry.IsFile() && localEntry.IsSameAs(remoteEntry) {
+			if options.QuickMode && localEntry.IsFile() && localEntry.IsSameAs(remoteEntry) {
 				LOG_TRACE("RESTORE_SKIP", "File %s unchanged (by size and timestamp)", localEntry.Path)
 				skippedFileSize += localEntry.Size
 				skippedFileCount++
@@ -780,7 +800,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 				if stat.Mode()&os.ModeSymlink != 0 {
 					isRegular, link, err := Readlink(fullPath)
 					if err == nil && link == remoteEntry.Link && !isRegular {
-						remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
+						remoteEntry.RestoreMetadata(fullPath, nil, options.SetOwner)
 						if remoteEntry.IsHardLinkRoot() {
 							hardLinkTable[len(hardLinkTable)-1].willExist = true
 						}
@@ -805,7 +825,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 				LOG_ERROR("RESTORE_SYMLINK", "Can't create symlink %s: %v", remoteEntry.Path, err)
 				return 0
 			}
-			remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
+			remoteEntry.RestoreMetadata(fullPath, nil, options.SetOwner)
 			LOG_TRACE("DOWNLOAD_DONE", "Symlink %s updated", remoteEntry.Path)
 
 		} else if remoteEntry.IsDir() {
@@ -834,7 +854,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 		} else if remoteEntry.IsSpecial() {
 			if stat, _ := os.Lstat(fullPath); stat != nil {
 				if remoteEntry.IsSameSpecial(stat) {
-					remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
+					remoteEntry.RestoreMetadata(fullPath, nil, options.SetOwner)
 					if remoteEntry.IsHardLinkRoot() {
 						hardLinkTable[len(hardLinkTable)-1].willExist = true
 					}
@@ -856,7 +876,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 				LOG_ERROR("RESTORE_SPECIAL", "Failed to restore special file %s: %v", fullPath, err)
 				return 0
 			}
-			remoteEntry.RestoreMetadata(fullPath, nil, setOwner)
+			remoteEntry.RestoreMetadata(fullPath, nil, options.SetOwner)
 			LOG_TRACE("DOWNLOAD_DONE", "Special %s %s restored", remoteEntry.Path, remoteEntry.FmtSpecial())
 
 		} else {
@@ -930,7 +950,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 		fullPath := joinPath(top, file.Path)
 		stat, _ := os.Stat(fullPath)
 		if stat != nil {
-			if quickMode {
+			if options.QuickMode {
 				if file.IsSameAsFileInfo(stat) {
 					LOG_TRACE("RESTORE_SKIP", "File %s unchanged (by size and timestamp)", file.Path)
 					skippedFileSize += file.Size
@@ -962,8 +982,8 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			}
 			newFile.Close()
 
-			file.RestoreMetadata(fullPath, nil, setOwner)
-			if !showStatistics {
+			file.RestoreMetadata(fullPath, nil, options.SetOwner)
+			if !options.ShowStatistics {
 				LOG_INFO("DOWNLOAD_DONE", "Downloaded %s (0)", file.Path)
 				downloadedFileSize += file.Size
 				downloadedFiles = append(downloadedFiles, file)
@@ -972,8 +992,8 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			continue
 		}
 
-		downloaded, err := manager.RestoreFile(chunkDownloader, chunkMaker, file, top, inPlace, overwrite, showStatistics,
-			totalFileSize, downloadedFileSize, startDownloadingTime, allowFailures)
+		downloaded, err := manager.RestoreFile(chunkDownloader, chunkMaker, file, top, options.InPlace, overwrite,
+			options.ShowStatistics, totalFileSize, downloadedFileSize, startDownloadingTime, allowFailures)
 		if err != nil {
 			// RestoreFile returned an error; if allowFailures is false RestoerFile would error out and not return so here
 			// we just need to show a warning
@@ -992,7 +1012,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 			skippedFileSize += file.Size
 			skippedFileCount++
 		}
-		file.RestoreMetadata(fullPath, nil, setOwner)
+		file.RestoreMetadata(fullPath, nil, options.SetOwner)
 	}
 
 	for _, linkEntry := range hardLinks {
@@ -1027,7 +1047,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 		LOG_TRACE("RESTORE_HARDLINK", "Hard linked %s to %s", linkEntry.Path, hardLinkTable[i].entry.Path)
 	}
 
-	if deleteMode && len(patterns) == 0 {
+	if options.DeleteMode && len(patterns) == 0 {
 		// Reverse the order to make sure directories are empty before being deleted
 		for i := range extraFiles {
 			file := extraFiles[len(extraFiles)-1-i]
@@ -1039,10 +1059,10 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 
 	for _, entry := range directoryEntries {
 		dir := joinPath(top, entry.Path)
-		entry.RestoreMetadata(dir, nil, setOwner)
+		entry.RestoreMetadata(dir, nil, options.SetOwner)
 	}
 
-	if showStatistics {
+	if options.ShowStatistics {
 		for _, file := range downloadedFiles {
 			LOG_INFO("DOWNLOAD_DONE", "Downloaded %s (%d)", file.Path, file.Size)
 		}
@@ -1053,7 +1073,7 @@ func (manager *BackupManager) Restore(top string, revision int, inPlace bool, qu
 	}
 
 	LOG_INFO("RESTORE_END", "Restored %s to revision %d", top, revision)
-	if showStatistics {
+	if options.ShowStatistics {
 		LOG_INFO("RESTORE_STATS", "Files: %d total, %s bytes", len(fileEntries), PrettySize(totalFileSize))
 		LOG_INFO("RESTORE_STATS", "Downloaded %d file, %s bytes, %d chunks",
 			len(downloadedFiles), PrettySize(downloadedFileSize), chunkDownloader.numberOfDownloadedChunks)
