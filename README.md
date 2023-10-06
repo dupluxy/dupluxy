@@ -1,13 +1,13 @@
 # Dupluxe
 
-A Duplicacy derivative with improved support for preserving state on UNIX like systems. Produces snapshots compatible with Duplicacy.
+An experimental Duplicacy derivative with improved support for preserving state on UNIX like systems. Produces snapshots compatible with Duplicacy.
 
-NOTE: This project/repository is not affiliated with nor endorsed by Duplicacy, Acrosync or their associated rights holders. It is developed and distributed in accordance with the associated LICENSE. Commercial use may require purchase of a license from Acrosync.
+NOTE: This project/repository is not affiliated with nor endorsed by Duplicacy, Acrosync or their associated rights holders. This project is open source but is not free/libre software. It is developed and distributed in accordance with the associated LICENSE. Commercial use may require purchase of a license from Acrosync, please contact them if you have any doubts.
 
 ## Added Features
 * Support for hard links. Hard links are tracked during local file listing. All linked entries will reuse the same chunk data, so this can give a time and space saving benefit as hard-linked files only need to be packed once. Hard links are supported to everything (regular files, symlinks, special files) except directories.
-* File flags, that is chflags(1) on BSD/Darwin, and ioctl_iflags(2) on Linux. The primary use case is to preserve iflags used by btrfs for no-COW and compression.
-* Special files (character/block devices, FIFOs, and sockets) are preserved along with associated metadata.
+* Optional File flags, that is chflags(1) on BSD/Darwin, and ioctl_iflags(2) on Linux. The primary use case is to preserve iflags used by btrfs for no-COW and compression.
+* Optional Special files (character/block devices, FIFOs, and sockets) are preserved along with associated metadata.
 
 ## Assorted Changes
 * The S3 backend uses the newer ListObjectsV2 interface originally because of a bug with some providers with the old, obsolete interface, but now because this API is considerably faster on a number of providers tested.
