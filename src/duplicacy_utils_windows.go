@@ -56,7 +56,11 @@ const (
 
 // Readlink returns the destination of the named symbolic link.
 func Readlink(path string) (isRegular bool, s string, err error) {
-	fd, err := syscall.CreateFile(syscall.StringToUTF16Ptr(path), FILE_READ_ATTRIBUTES,
+	pPath, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return false, "", err
+	}
+	fd, err := syscall.CreateFile(pPath, FILE_READ_ATTRIBUTES,
 		syscall.FILE_SHARE_READ, nil, syscall.OPEN_EXISTING,
 		syscall.FILE_FLAG_OPEN_REPARSE_POINT|syscall.FILE_FLAG_BACKUP_SEMANTICS, 0)
 	if err != nil {
