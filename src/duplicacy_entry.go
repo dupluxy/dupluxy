@@ -586,7 +586,7 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOw
 		var err error
 		fileInfo, err = os.Lstat(fullPath)
 		if err != nil {
-			LOG_ERROR("RESTORE_STAT", "Failed to retrieve the file info: %v", err)
+			LOG_ERROR("RESTORE_STAT", "Failed to retrieve the file info on %s: %v", entry.Path, err)
 			return false
 		}
 	}
@@ -606,7 +606,7 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOw
 	if !entry.IsLink() && fileInfo.Mode()&fileModeMask != entry.GetPermissions() {
 		err := os.Chmod(fullPath, entry.GetPermissions())
 		if err != nil {
-			LOG_ERROR("RESTORE_CHMOD", "Failed to set the file permissions: %v", err)
+			LOG_ERROR("RESTORE_CHMOD", "Failed to set the file permissions on %s: %v", entry.Path, err)
 			return false
 		}
 	}
@@ -616,7 +616,7 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOw
 		modifiedTime := time.Unix(entry.Time, 0)
 		err := os.Chtimes(fullPath, modifiedTime, modifiedTime)
 		if err != nil {
-			LOG_ERROR("RESTORE_CHTIME", "Failed to set the modification time: %v", err)
+			LOG_ERROR("RESTORE_CHTIME", "Failed to set the modification time on %s: %v", entry.Path, err)
 			return false
 		}
 	}
