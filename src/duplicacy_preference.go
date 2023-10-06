@@ -50,6 +50,7 @@ type Preference struct {
 	NobackupFile       string            `json:"nobackup_file"`
 	Keys               map[string]string `json:"keys"`
 	FiltersFile        string            `json:"filters"`
+	ExcludeOwner       bool              `json:"exclude_owner"`
 	ExcludeByAttribute bool              `json:"exclude_by_attribute"`
 	ExcludeXattrs      bool              `json:"exclude_xattrs"`
 	NormalizeXattrs    bool              `json:"normalize_xattrs"`

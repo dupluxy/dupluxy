@@ -32,32 +32,33 @@ type BackupManager struct {
 	SnapshotManager *SnapshotManager // the snapshot manager
 	snapshotCache   *FileStorage     // for copies of chunks needed by snapshots
 
-	config *Config // contains a number of options
-
-	nobackupFile       string // don't backup directory when this file name is found
-	filtersFile        string // the path to the filters file
-	excludeByAttribute bool   // don't backup file based on file attribute
+	config  *Config // contains a number of options
+	options BackupManagerOptions
 
 	cachePath string
 }
 
-type BackupOptions struct {
+type BackupManagerOptions struct {
+	NoBackupFile       string // don't backup directory when this file name is found
+	FiltersFile        string // the path to the filters file
+	ExcludeByAttribute bool   // don't backup file based on file attribute
+	SetOwner           bool
+	ExcludeXattrs      bool
+	NormalizeXattrs    bool
+	IncludeFileFlags   bool
+	IncludeSpecials    bool
+	FileFlagsMask      uint32
 }
 
 type RestoreOptions struct {
-	Threads         int
-	Patterns        []string
-	InPlace         bool
-	QuickMode       bool
-	Overwrite       bool
-	DeleteMode      bool
-	SetOwner        bool
-	ShowStatistics  bool
-	AllowFailures   bool
-	ExcludeXattrs   bool
-	NormalizeXattrs bool
-	IncludeSpecials bool
-	FileFlagsMask   uint32
+	Threads        int
+	Patterns       []string
+	InPlace        bool
+	QuickMode      bool
+	Overwrite      bool
+	DeleteMode     bool
+	ShowStatistics bool
+	AllowFailures  bool
 }
 
 func (manager *BackupManager) SetDryRun(dryRun bool) {
@@ -71,7 +72,8 @@ func (manager *BackupManager) SetCompressionLevel(level int) {
 // CreateBackupManager creates a backup manager using the specified 'storage'.  'snapshotID' is a unique id to
 // identify snapshots created for this repository.  'top' is the top directory of the repository.  'password' is the
 // master key which can be nil if encryption is not enabled.
-func CreateBackupManager(snapshotID string, storage Storage, top string, password string, nobackupFile string, filtersFile string, excludeByAttribute bool) *BackupManager {
+func CreateBackupManager(snapshotID string, storage Storage, top string, password string,
+	options *BackupManagerOptions) *BackupManager {
 
 	config, _, err := DownloadConfig(storage, password)
 	if err != nil {
@@ -91,13 +93,11 @@ func CreateBackupManager(snapshotID string, storage Storage, top string, passwor
 
 		SnapshotManager: snapshotManager,
 
-		config: config,
-
-		nobackupFile: nobackupFile,
-
-		filtersFile: filtersFile,
-
-		excludeByAttribute: excludeByAttribute,
+		config:  config,
+		options: *options,
+	}
+	if options != nil {
+		backupManager.options = *options
 	}
 
 	if IsDebugging() {
@@ -170,7 +170,7 @@ func (manager *BackupManager) Backup(top string, quickMode bool, threads int, ta
 		LOG_INFO("BACKUP_KEY", "RSA encryption is enabled")
 	}
 
-	if manager.excludeByAttribute {
+	if manager.options.ExcludeByAttribute {
 		LOG_INFO("BACKUP_EXCLUDE", "Exclude files with no-backup attributes")
 	}
 
@@ -255,7 +255,8 @@ func (manager *BackupManager) Backup(top string, quickMode bool, threads int, ta
 	go func() {
 		// List local files
 		defer CatchLogException()
-		localSnapshot.ListLocalFiles(shadowTop, manager.nobackupFile, manager.filtersFile, manager.excludeByAttribute, localListingChannel, &skippedDirectories, &skippedFiles)
+		localSnapshot.ListLocalFiles(shadowTop, manager.options.NoBackupFile, manager.options.FiltersFile,
+			manager.options.ExcludeByAttribute, localListingChannel, &skippedDirectories, &skippedFiles)
 	}()
 
 	go func() {
@@ -642,7 +643,7 @@ func (manager *BackupManager) Backup(top string, quickMode bool, threads int, ta
 // Restore downloads the specified snapshot, compares it with what's on the repository, and then downloads
 // files that are different.'QuickMode' will bypass files with unchanged sizes and timestamps. 'DeleteMode' will
 // remove local files that don't exist in the snapshot. 'Patterns' is used to include/exclude certain files.
-func (manager *BackupManager) Restore(top string, revision int, options RestoreOptions) int {
+func (manager *BackupManager) Restore(top string, revision int, options *RestoreOptions) int {
 	if options.Threads < 1 {
 		options.Threads = 1
 	}
@@ -653,10 +654,10 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 	allowFailures := options.AllowFailures
 
 	metadataOptions := RestoreMetadataOptions{
-		SetOwner: options.SetOwner,
-		ExcludeXattrs: options.ExcludeXattrs,
-		NormalizeXattrs: options.NormalizeXattrs,
-		FileFlagsMask: options.FileFlagsMask,
+		SetOwner:        manager.options.SetOwner,
+		ExcludeXattrs:   manager.options.ExcludeXattrs,
+		NormalizeXattrs: manager.options.NormalizeXattrs,
+		FileFlagsMask:   manager.options.FileFlagsMask,
 	}
 
 	startTime := time.Now().Unix()
@@ -715,7 +716,8 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 	go func() {
 		// List local files
 		defer CatchLogException()
-		localSnapshot.ListLocalFiles(top, manager.nobackupFile, manager.filtersFile, manager.excludeByAttribute, localListingChannel, nil, nil)
+		localSnapshot.ListLocalFiles(top, manager.options.NoBackupFile, manager.options.FiltersFile,
+			manager.options.ExcludeByAttribute, localListingChannel, nil, nil)
 	}()
 
 	remoteSnapshot := manager.SnapshotManager.DownloadSnapshot(manager.snapshotID, revision)
@@ -857,12 +859,12 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 					return 0
 				}
 			}
-			err = remoteEntry.RestoreEarlyDirFlags(fullPath, options.FileFlagsMask)
+			err = remoteEntry.RestoreEarlyDirFlags(fullPath, manager.options.FileFlagsMask)
 			if err != nil {
 				LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
 			}
 			directoryEntries = append(directoryEntries, remoteEntry)
-		} else if remoteEntry.IsSpecial() && options.IncludeSpecials {
+		} else if remoteEntry.IsSpecial() && manager.options.IncludeSpecials {
 			if stat, _ := os.Lstat(fullPath); stat != nil {
 				if remoteEntry.IsSameSpecial(stat) {
 					remoteEntry.RestoreMetadata(fullPath, nil, metadataOptions)
