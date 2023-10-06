@@ -126,18 +126,20 @@ func (entry *Entry) Copy() *Entry {
 
 func (entry *Entry) HardLinkTo(target *Entry, startChunk int, endChunk int) *Entry {
 	endOffset := target.EndOffset
+	link := entry.Link
 
 	if !target.IsFile() {
 		startChunk = target.StartChunk
 		endChunk = entry.EndChunk
 		endOffset = entry.EndOffset
+		link = target.Link
 	}
 	return &Entry{
 		Path: entry.Path,
 		Size: target.Size,
 		Time: target.Time,
 		Mode: target.Mode,
-		Link: entry.Link,
+		Link: link,
 		Hash: target.Hash,
 
 		UID: target.UID,
