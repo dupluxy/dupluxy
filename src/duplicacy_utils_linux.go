@@ -10,10 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"syscall"
 	"unsafe"
 
 	"github.com/pkg/xattr"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -46,7 +46,7 @@ const (
 func ioctl(f *os.File, request uintptr, attrp *uint32) error {
 	argp := uintptr(unsafe.Pointer(attrp))
 
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), request, argp); errno != 0 {
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), request, argp); errno != 0 {
 		return os.NewSyscallError("ioctl", errno)
 	}
 	return nil
@@ -88,7 +88,7 @@ func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
 		return nil
 	}
 
-	f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
 	}
 
 	if flags != 0 {
-		f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_DIRECTORY, 0)
+		f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_DIRECTORY, 0)
 		if err != nil {
 			return err
 		}
@@ -202,7 +202,7 @@ func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, 
 	}
 
 	if flags != 0 {
-		f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_NOFOLLOW, 0)
 		if err != nil {
 			return err
 		}
@@ -219,15 +219,15 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 	mode := entry.Mode & uint32(fileModeMask)
 
 	if entry.Mode&uint32(os.ModeNamedPipe) != 0 {
-		mode |= syscall.S_IFIFO
+		mode |= unix.S_IFIFO
 	} else if entry.Mode&uint32(os.ModeCharDevice) != 0 {
-		mode |= syscall.S_IFCHR
+		mode |= unix.S_IFCHR
 	} else if entry.Mode&uint32(os.ModeDevice) != 0 {
-		mode |= syscall.S_IFBLK
+		mode |= unix.S_IFBLK
 	} else if entry.Mode&uint32(os.ModeSocket) != 0 {
-		mode |= syscall.S_IFSOCK
+		mode |= unix.S_IFSOCK
 	} else {
 		return nil
 	}
-	return syscall.Mknod(fullPath, mode, int(entry.GetRdev()))
+	return unix.Mknod(fullPath, mode, int(entry.GetRdev()))
 }

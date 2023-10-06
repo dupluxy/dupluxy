@@ -8,7 +8,6 @@
 package duplicacy
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -22,20 +21,15 @@ func Readlink(path string) (isRegular bool, s string, err error) {
 	return false, s, err
 }
 
-func GetOwner(entry *Entry, fileInfo *os.FileInfo) {
-	stat, ok := (*fileInfo).Sys().(*syscall.Stat_t)
-	if ok && stat != nil {
-		entry.UID = int(stat.Uid)
-		entry.GID = int(stat.Gid)
-	} else {
-		entry.UID = -1
-		entry.GID = -1
-	}
+func GetOwner(entry *Entry, fileInfo os.FileInfo) {
+	stat := fileInfo.Sys().(*syscall.Stat_t)
+	entry.UID = int(stat.Uid)
+	entry.GID = int(stat.Gid)
 }
 
 func SetOwner(fullPath string, entry *Entry, fileInfo os.FileInfo) bool {
-	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
-	if ok && stat != nil && (int(stat.Uid) != entry.UID || int(stat.Gid) != entry.GID) {
+	stat := fileInfo.Sys().(*syscall.Stat_t)
+	if (int(stat.Uid) != entry.UID || int(stat.Gid) != entry.GID) {
 		if entry.UID != -1 && entry.GID != -1 {
 			err := os.Lchown(fullPath, entry.UID, entry.GID)
 			if err != nil {
@@ -58,7 +52,7 @@ func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked 
 		return
 	}
 	stat := f.Sys().(*syscall.Stat_t)
-	if stat == nil || stat.Nlink <= 1 {
+	if stat.Nlink <= 1 {
 		return
 	}
 	key.dev = uint64(stat.Dev)
@@ -71,12 +65,8 @@ func (entry *Entry) ReadSpecial(fullPath string, fileInfo os.FileInfo) error {
 	if fileInfo.Mode()&(os.ModeDevice|os.ModeCharDevice) == 0 {
 		return nil
 	}
-	stat := fileInfo.Sys().(*syscall.Stat_t)
-	if stat == nil {
-		return errors.New("file stat info missing")
-	}
+	rdev := uint64(fileInfo.Sys().(*syscall.Stat_t).Rdev)
 	entry.Size = 0
-	rdev := uint64(stat.Rdev)
 	entry.StartChunk = int(rdev & 0xFFFFFFFF)
 	entry.StartOffset = int(rdev >> 32)
 	return nil
@@ -88,9 +78,6 @@ func (entry *Entry) GetRdev() uint64 {
 
 func (entry *Entry) IsSameSpecial(fileInfo os.FileInfo) bool {
 	stat := fileInfo.Sys().(*syscall.Stat_t)
-	if stat == nil {
-		return false
-	}
 	return (uint32(fileInfo.Mode()) == entry.Mode) && (uint64(stat.Rdev) == entry.GetRdev())
 }
 

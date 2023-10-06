@@ -23,7 +23,7 @@ const (
 var darwinIsSuperUser bool
 
 func init() {
-	darwinIsSuperUser = syscall.Geteuid() == 0
+	darwinIsSuperUser = unix.Geteuid() == 0
 }
 
 func excludedByAttribute(attributes map[string][]byte) bool {
@@ -63,8 +63,8 @@ func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
 }
 
 func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
-	stat, _ := fileInfo.Sys().(*syscall.Stat_t)
-	if stat != nil && stat.Flags != 0 {
+	stat := fileInfo.Sys().(*syscall.Stat_t)
+	if stat.Flags != 0 {
 		if entry.Attributes == nil {
 			entry.Attributes = &map[string][]byte{}
 		}
@@ -132,22 +132,20 @@ func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, 
 
 	var flags uint32
 
-	stat := fileInfo.Sys().(*syscall.Stat_t)
-	if stat == nil {
-		return errors.New("file stat info missing")
-	}
 	if v, have := (*entry.Attributes)[darwinFileFlagsKey]; have {
 		flags = binary.LittleEndian.Uint32(v)
 	}
 
+	stat := fileInfo.Sys().(*syscall.Stat_t)
+
 	flags = (flags & ^mask) | (stat.Flags & mask)
 
 	if flags != stat.Flags {
-		f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_SYMLINK, 0)
+		f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_SYMLINK, 0)
 		if err != nil {
 			return err
 		}
-		err = syscall.Fchflags(int(f.Fd()), int(flags))
+		err = unix.Fchflags(int(f.Fd()), int(flags))
 		f.Close()
 		return err
 	}
@@ -158,13 +156,13 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 	mode := entry.Mode & uint32(fileModeMask)
 
 	if entry.Mode&uint32(os.ModeNamedPipe) != 0 {
-		mode |= syscall.S_IFIFO
+		mode |= unix.S_IFIFO
 	} else if entry.Mode&uint32(os.ModeCharDevice) != 0 {
-		mode |= syscall.S_IFCHR
+		mode |= unix.S_IFCHR
 	} else if entry.Mode&uint32(os.ModeDevice) != 0 {
-		mode |= syscall.S_IFBLK
+		mode |= unix.S_IFBLK
 	} else {
 		return nil
 	}
-	return syscall.Mknod(fullPath, mode, int(entry.GetRdev()))
+	return unix.Mknod(fullPath, mode, int(entry.GetRdev()))
 }

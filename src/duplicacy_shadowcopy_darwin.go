@@ -10,7 +10,6 @@ package duplicacy
 import (
 	"context"
 	"errors"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"regexp"
@@ -136,7 +135,7 @@ func CreateShadowCopy(top string, shadowCopy bool, timeoutInSeconds int) (shadow
 	}
 
 	// Create mount point
-	snapshotPath, err = ioutil.TempDir("/tmp/", "snp_")
+	snapshotPath, err = os.MkdirTemp("/tmp/", "snp_")
 	if err != nil {
 		LOG_ERROR("VSS_CREATE", "Failed to create temporary mount directory")
 		return top
