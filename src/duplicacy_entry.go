@@ -582,7 +582,15 @@ func (entry *Entry) String(maxSizeDigits int) string {
 	return fmt.Sprintf("%*d %s %64s %s", maxSizeDigits, entry.Size, modifiedTime, entry.Hash, entry.Path)
 }
 
-func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOwner bool) bool {
+type RestoreMetadataOptions struct {
+	SetOwner bool
+	ExcludeXattrs bool
+	NormalizeXattrs bool
+	FileFlagsMask uint32
+}
+
+func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo,
+	options RestoreMetadataOptions) bool {
 
 	if fileInfo == nil {
 		var err error
@@ -593,13 +601,15 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOw
 		}
 	}
 
-	err := entry.SetAttributesToFile(fullPath)
-	if err != nil {
-		LOG_WARN("RESTORE_ATTR", "Failed to set extended attributes on %s: %v", entry.Path, err)
+	if !options.ExcludeXattrs {
+		err := entry.SetAttributesToFile(fullPath, options.NormalizeXattrs)
+		if err != nil {
+			LOG_WARN("RESTORE_ATTR", "Failed to set extended attributes on %s: %v", entry.Path, err)
+		}
 	}
 
 	// Note that chown can remove setuid/setgid bits so should be called before chmod
-	if setOwner {
+	if options.SetOwner {
 		if !SetOwner(fullPath, entry, fileInfo) {
 			return false
 		}
@@ -624,7 +634,7 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOw
 		}
 	}
 
-	err = entry.RestoreLateFileFlags(fullPath, fileInfo, 0) // TODO: implement mask
+	err := entry.RestoreLateFileFlags(fullPath, fileInfo, options.FileFlagsMask)
 	if err != nil {
 		LOG_WARN("RESTORE_FLAGS", "Failed to set file flags on %s: %v", entry.Path, err)
 	}

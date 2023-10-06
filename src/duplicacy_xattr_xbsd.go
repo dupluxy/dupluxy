@@ -71,7 +71,7 @@ func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
 	return nil
 }
 
-func (entry *Entry) SetAttributesToFile(fullPath string) error {
+func (entry *Entry) SetAttributesToFile(fullPath string, normalize bool) error {
 	if entry.Attributes == nil || len(*entry.Attributes) == 0 || entry.IsSpecial() {
 		return nil
 	}
@@ -116,7 +116,7 @@ func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
 }
 
 func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, mask uint32) error {
-	if entry.Attributes == nil {
+	if mask == 0xffffffff {
 		return nil
 	}
 
@@ -128,8 +128,10 @@ func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, 
 
 	var flags uint32
 
-	if v, have := (*entry.Attributes)[bsdFileFlagsKey]; have {
-		flags = binary.LittleEndian.Uint32(v)
+	if entry.Attributes != nil {
+		if v, have := (*entry.Attributes)[bsdFileFlagsKey]; have {
+			flags = binary.LittleEndian.Uint32(v)
+		}
 	}
 
 	stat := fileInfo.Sys().(*syscall.Stat_t)

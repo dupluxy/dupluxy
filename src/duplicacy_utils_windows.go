@@ -114,6 +114,29 @@ func SetOwner(fullPath string, entry *Entry, fileInfo os.FileInfo) bool {
 	return true
 }
 
+func MakeHardlink(source string, target string) error {
+	return os.Link(source, target)
+}
+
+func joinPath(components ...string) string {
+
+	combinedPath := `\\?\` + filepath.Join(components...)
+	// If the path is on a samba drive we must use the UNC format
+	if strings.HasPrefix(combinedPath, `\\?\\\`) {
+		combinedPath = `\\?\UNC\` + combinedPath[6:]
+	}
+	return combinedPath
+}
+
+func SplitDir(fullPath string) (dir string, file string) {
+	i := strings.LastIndex(fullPath, "\\")
+	return fullPath[:i+1], fullPath[i+1:]
+}
+
+func excludedByAttribute(attributes map[string][]byte) bool {
+	return false
+}
+
 type listEntryLinkKey struct{}
 
 func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked bool) {
@@ -128,7 +151,7 @@ func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
 	return nil
 }
 
-func (entry *Entry) SetAttributesToFile(fullPath string) error {
+func (entry *Entry) SetAttributesToFile(fullPath string, normalize bool) error {
 	return nil
 }
 
@@ -158,27 +181,4 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 
 func (entry *Entry) FmtSpecial() string {
 	return ""
-}
-
-func MakeHardlink(source string, target string) error {
-	return os.Link(source, target)
-}
-
-func joinPath(components ...string) string {
-
-	combinedPath := `\\?\` + filepath.Join(components...)
-	// If the path is on a samba drive we must use the UNC format
-	if strings.HasPrefix(combinedPath, `\\?\\\`) {
-		combinedPath = `\\?\UNC\` + combinedPath[6:]
-	}
-	return combinedPath
-}
-
-func SplitDir(fullPath string) (dir string, file string) {
-	i := strings.LastIndex(fullPath, "\\")
-	return fullPath[:i+1], fullPath[i+1:]
-}
-
-func excludedByAttribute(attributes map[string][]byte) bool {
-	return false
 }

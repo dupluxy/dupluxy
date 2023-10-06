@@ -858,6 +858,10 @@ func restoreRepository(context *cli.Context) {
 		SetOwner: !context.Bool("ignore-owner"),
 		ShowStatistics: context.Bool("stats"),
 		AllowFailures: context.Bool("persist"),
+		ExcludeXattrs: preference.ExcludeXattrs,
+		NormalizeXattrs: preference.NormalizeXattrs,
+		IncludeSpecials: preference.IncludeSpecials,
+		FileFlagsMask: uint32(preference.FileFlagsMask),
 	}
 
 	var patterns []string

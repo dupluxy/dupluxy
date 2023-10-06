@@ -6,27 +6,55 @@ package duplicacy
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"fmt"
 	"os"
 	"path"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
+type flagsMask uint32
+
+func (f flagsMask) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fmt.Sprintf("0x%.8x", f))
+}
+
+func (f *flagsMask) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+	if str[0] == '0' && (str[1] == 'x' || str[1] == 'X') {
+		str = str[2:]
+	}
+
+	v, err := strconv.ParseUint(string(str), 16, 32)
+	if err != nil {
+		return err
+	}
+	*f = flagsMask(v)
+	return nil
+}
+
 // Preference stores options for each storage.
 type Preference struct {
-	Name              string            `json:"name"`
-	SnapshotID        string            `json:"id"`
-	RepositoryPath    string            `json:"repository"`
-	StorageURL        string            `json:"storage"`
-	Encrypted         bool              `json:"encrypted"`
-	BackupProhibited  bool              `json:"no_backup"`
-	RestoreProhibited bool              `json:"no_restore"`
-	DoNotSavePassword bool              `json:"no_save_password"`
-	NobackupFile      string            `json:"nobackup_file"`
-	Keys              map[string]string `json:"keys"`
-	FiltersFile       string            `json:"filters"`
-	ExcludeByAttribute bool             `json:"exclude_by_attribute"`
+	Name               string            `json:"name"`
+	SnapshotID         string            `json:"id"`
+	RepositoryPath     string            `json:"repository"`
+	StorageURL         string            `json:"storage"`
+	Encrypted          bool              `json:"encrypted"`
+	BackupProhibited   bool              `json:"no_backup"`
+	RestoreProhibited  bool              `json:"no_restore"`
+	DoNotSavePassword  bool              `json:"no_save_password"`
+	NobackupFile       string            `json:"nobackup_file"`
+	Keys               map[string]string `json:"keys"`
+	FiltersFile        string            `json:"filters"`
+	ExcludeByAttribute bool              `json:"exclude_by_attribute"`
+	ExcludeXattrs      bool              `json:"exclude_xattrs"`
+	NormalizeXattrs    bool              `json:"normalize_xattrs"`
+	IncludeSpecials    bool              `json:"include_specials"`
+	FileFlagsMask      flagsMask         `json:"file_flags_mask"`
 }
 
 var preferencePath string
@@ -43,7 +71,7 @@ func LoadPreferences(repository string) bool {
 	}
 
 	if !stat.IsDir() {
-		content, err := ioutil.ReadFile(preferencePath)
+		content, err := os.ReadFile(preferencePath)
 		if err != nil {
 			LOG_ERROR("DOT_DUPLICACY_PATH", "Failed to locate the preference path: %v", err)
 			return false
@@ -61,7 +89,7 @@ func LoadPreferences(repository string) bool {
 		preferencePath = realPreferencePath
 	}
 
-	description, err := ioutil.ReadFile(path.Join(preferencePath, "preferences"))
+	description, err := os.ReadFile(path.Join(preferencePath, "preferences"))
 	if err != nil {
 		LOG_ERROR("PREFERENCE_OPEN", "Failed to read the preference file from repository %s: %v", repository, err)
 		return false
@@ -110,7 +138,7 @@ func SavePreferences() bool {
 	}
 	preferenceFile := path.Join(GetDuplicacyPreferencePath(), "preferences")
 
-	err = ioutil.WriteFile(preferenceFile, description, 0600)
+	err = os.WriteFile(preferenceFile, description, 0600)
 	if err != nil {
 		LOG_ERROR("PREFERENCE_WRITE", "Failed to save the preference file %s: %v", preferenceFile, err)
 		return false

@@ -45,15 +45,19 @@ type BackupOptions struct {
 }
 
 type RestoreOptions struct {
-	Threads        int
-	Patterns       []string
-	InPlace        bool
-	QuickMode      bool
-	Overwrite      bool
-	DeleteMode     bool
-	SetOwner       bool
-	ShowStatistics bool
-	AllowFailures  bool
+	Threads         int
+	Patterns        []string
+	InPlace         bool
+	QuickMode       bool
+	Overwrite       bool
+	DeleteMode      bool
+	SetOwner        bool
+	ShowStatistics  bool
+	AllowFailures   bool
+	ExcludeXattrs   bool
+	NormalizeXattrs bool
+	IncludeSpecials bool
+	FileFlagsMask   uint32
 }
 
 func (manager *BackupManager) SetDryRun(dryRun bool) {
@@ -648,6 +652,13 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 	overwrite := options.Overwrite
 	allowFailures := options.AllowFailures
 
+	metadataOptions := RestoreMetadataOptions{
+		SetOwner: options.SetOwner,
+		ExcludeXattrs: options.ExcludeXattrs,
+		NormalizeXattrs: options.NormalizeXattrs,
+		FileFlagsMask: options.FileFlagsMask,
+	}
+
 	startTime := time.Now().Unix()
 
 	LOG_DEBUG("RESTORE_PARAMETERS", "top: %s, revision: %d, in-place: %t, quick: %t, delete: %t",
@@ -800,7 +811,7 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 				if stat.Mode()&os.ModeSymlink != 0 {
 					isRegular, link, err := Readlink(fullPath)
 					if err == nil && link == remoteEntry.Link && !isRegular {
-						remoteEntry.RestoreMetadata(fullPath, nil, options.SetOwner)
+						remoteEntry.RestoreMetadata(fullPath, stat, metadataOptions)
 						if remoteEntry.IsHardLinkRoot() {
 							hardLinkTable[len(hardLinkTable)-1].willExist = true
 						}
@@ -825,7 +836,7 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 				LOG_ERROR("RESTORE_SYMLINK", "Can't create symlink %s: %v", remoteEntry.Path, err)
 				return 0
 			}
-			remoteEntry.RestoreMetadata(fullPath, nil, options.SetOwner)
+			remoteEntry.RestoreMetadata(fullPath, nil, metadataOptions)
 			LOG_TRACE("DOWNLOAD_DONE", "Symlink %s updated", remoteEntry.Path)
 
 		} else if remoteEntry.IsDir() {
@@ -846,15 +857,15 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 					return 0
 				}
 			}
-			err = remoteEntry.RestoreEarlyDirFlags(fullPath, 0) // TODO: mask
+			err = remoteEntry.RestoreEarlyDirFlags(fullPath, options.FileFlagsMask)
 			if err != nil {
 				LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
 			}
 			directoryEntries = append(directoryEntries, remoteEntry)
-		} else if remoteEntry.IsSpecial() {
+		} else if remoteEntry.IsSpecial() && options.IncludeSpecials {
 			if stat, _ := os.Lstat(fullPath); stat != nil {
 				if remoteEntry.IsSameSpecial(stat) {
-					remoteEntry.RestoreMetadata(fullPath, nil, options.SetOwner)
+					remoteEntry.RestoreMetadata(fullPath, nil, metadataOptions)
 					if remoteEntry.IsHardLinkRoot() {
 						hardLinkTable[len(hardLinkTable)-1].willExist = true
 					}
@@ -876,7 +887,7 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 				LOG_ERROR("RESTORE_SPECIAL", "Failed to restore special file %s: %v", fullPath, err)
 				return 0
 			}
-			remoteEntry.RestoreMetadata(fullPath, nil, options.SetOwner)
+			remoteEntry.RestoreMetadata(fullPath, nil, metadataOptions)
 			LOG_TRACE("DOWNLOAD_DONE", "Special %s %s restored", remoteEntry.Path, remoteEntry.FmtSpecial())
 
 		} else {
@@ -982,7 +993,7 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 			}
 			newFile.Close()
 
-			file.RestoreMetadata(fullPath, nil, options.SetOwner)
+			file.RestoreMetadata(fullPath, nil, metadataOptions)
 			if !options.ShowStatistics {
 				LOG_INFO("DOWNLOAD_DONE", "Downloaded %s (0)", file.Path)
 				downloadedFileSize += file.Size
@@ -993,7 +1004,8 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 		}
 
 		downloaded, err := manager.RestoreFile(chunkDownloader, chunkMaker, file, top, options.InPlace, overwrite,
-			options.ShowStatistics, totalFileSize, downloadedFileSize, startDownloadingTime, allowFailures)
+			options.ShowStatistics, totalFileSize, downloadedFileSize, startDownloadingTime, allowFailures,
+			metadataOptions.FileFlagsMask)
 		if err != nil {
 			// RestoreFile returned an error; if allowFailures is false RestoerFile would error out and not return so here
 			// we just need to show a warning
@@ -1012,7 +1024,7 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 			skippedFileSize += file.Size
 			skippedFileCount++
 		}
-		file.RestoreMetadata(fullPath, nil, options.SetOwner)
+		file.RestoreMetadata(fullPath, nil, metadataOptions)
 	}
 
 	for _, linkEntry := range hardLinks {
@@ -1059,7 +1071,7 @@ func (manager *BackupManager) Restore(top string, revision int, options RestoreO
 
 	for _, entry := range directoryEntries {
 		dir := joinPath(top, entry.Path)
-		entry.RestoreMetadata(dir, nil, options.SetOwner)
+		entry.RestoreMetadata(dir, nil, metadataOptions)
 	}
 
 	if options.ShowStatistics {
@@ -1273,7 +1285,8 @@ func (manager *BackupManager) UploadSnapshot(chunkOperator *ChunkOperator, top s
 //	false, nil:   Skipped file;
 //	false, error: Failure to restore file (only if allowFailures == true)
 func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chunkMaker *ChunkMaker, entry *Entry, top string, inPlace bool, overwrite bool,
-	showStatistics bool, totalFileSize int64, downloadedFileSize int64, startTime int64, allowFailures bool) (bool, error) {
+	showStatistics bool, totalFileSize int64, downloadedFileSize int64, startTime int64, allowFailures bool,
+	fileFlagsMask uint32) (bool, error) {
 
 	LOG_TRACE("DOWNLOAD_START", "Downloading %s", entry.Path)
 
@@ -1320,7 +1333,7 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 					LOG_ERROR("DOWNLOAD_CREATE", "Failed to create the file %s for in-place writing: %v", fullPath, err)
 					return false, nil
 				}
-				err = entry.RestoreEarlyFileFlags(existingFile, 0) // TODO: implement mask
+				err = entry.RestoreEarlyFileFlags(existingFile, fileFlagsMask)
 				if err != nil {
 					LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
 				}
@@ -1507,7 +1520,7 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 				return false, nil
 			}
 		}
-		err = entry.RestoreEarlyFileFlags(existingFile, 0) // TODO: implement mask
+		err = entry.RestoreEarlyFileFlags(existingFile, fileFlagsMask)
 		if err != nil {
 			LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
 		}
@@ -1593,7 +1606,7 @@ func (manager *BackupManager) RestoreFile(chunkDownloader *ChunkDownloader, chun
 			LOG_ERROR("DOWNLOAD_OPEN", "Failed to open file for writing: %v", err)
 			return false, nil
 		}
-		err = entry.RestoreEarlyFileFlags(newFile, 0) // TODO: implement mask
+		err = entry.RestoreEarlyFileFlags(newFile, fileFlagsMask)
 		if err != nil {
 			LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
 		}

@@ -124,7 +124,7 @@ func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
 	return nil
 }
 
-func (entry *Entry) SetAttributesToFile(fullPath string) error {
+func (entry *Entry) SetAttributesToFile(fullPath string, normalize bool) error {
 	if entry.Attributes == nil || len(*entry.Attributes) == 0 {
 		return nil
 	}
@@ -161,7 +161,7 @@ func (entry *Entry) SetAttributesToFile(fullPath string) error {
 }
 
 func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
-	if entry.Attributes == nil {
+	if entry.Attributes == nil || mask == 0xffffffff {
 		return nil
 	}
 	var flags uint32
@@ -185,7 +185,7 @@ func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
 }
 
 func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
-	if entry.Attributes == nil {
+	if entry.Attributes == nil || mask == 0xffffffff {
 		return nil
 	}
 	var flags uint32
@@ -204,7 +204,7 @@ func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
 }
 
 func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, mask uint32) error {
-	if entry.IsLink() || entry.Attributes == nil {
+	if entry.IsLink() || entry.Attributes == nil || mask == 0xffffffff {
 		return nil
 	}
 	var flags uint32
@@ -218,7 +218,7 @@ func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, 
 		if err != nil {
 			return err
 		}
-		err = ioctl(f, linux_FS_IOC_SETFLAGS, &flags)
+		err = ioctl(f, unix.FS_IOC_SETFLAGS, &flags)
 		f.Close()
 		if err != nil {
 			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
