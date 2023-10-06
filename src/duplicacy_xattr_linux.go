@@ -33,9 +33,6 @@ const (
 	linux_FS_NOCOW_FL        = 0x00800000 /* Do not cow file */
 	linux_FS_PROJINHERIT_FL  = 0x20000000 /* Create with parents projid */
 
-	linux_FS_IOC_GETFLAGS uintptr = 0x80086601
-	linux_FS_IOC_SETFLAGS uintptr = 0x40086602
-
 	linuxIocFlagsFileEarly = linux_FS_SECRM_FL | linux_FS_UNRM_FL | linux_FS_COMPR_FL | linux_FS_NODUMP_FL | linux_FS_NOATIME_FL | linux_FS_NOCOMP_FL | linux_FS_JOURNAL_DATA_FL | linux_FS_NOTAIL_FL | linux_FS_NOCOW_FL
 	linuxIocFlagsDirEarly  = linux_FS_TOPDIR_FL | linux_FS_PROJINHERIT_FL
 	linuxIocFlagsLate      = linux_FS_SYNC_FL | linux_FS_IMMUTABLE_FL | linux_FS_APPEND_FL | linux_FS_DIRSYNC_FL
@@ -43,13 +40,32 @@ const (
 	linuxFileFlagsKey = "\x00lf"
 )
 
-func ioctl(f *os.File, request uintptr, attrp *uint32) error {
-	argp := uintptr(unsafe.Pointer(attrp))
+var (
+	errENOTTY error = unix.ENOTTY
+)
 
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), request, argp); errno != 0 {
-		return os.NewSyscallError("ioctl", errno)
+func ignoringEINTR(fn func() error) (err error) {
+	for {
+		err = fn()
+		if err != unix.EINTR {
+			break
+		}
 	}
-	return nil
+	return err
+}
+
+func ioctl(f *os.File, request uintptr, attrp *uint32) error {
+	return ignoringEINTR(func() error {
+		argp := uintptr(unsafe.Pointer(attrp))
+
+		_, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), request, argp)
+		if errno == 0 {
+			return nil
+		} else if errno == unix.ENOTTY {
+			return errENOTTY
+		}
+		return errno
+	})
 }
 
 func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
@@ -75,20 +91,25 @@ func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
 }
 
 func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
+	// the linux file flags interface is quite depressing. The half assed attempt at statx
+	// doesn't even cover the flags we're interested in
 	if !(entry.IsFile() || entry.IsDir()) {
 		return nil
 	}
 
-	f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_NOATIME|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
 
 	var flags uint32
 
-	err = ioctl(f, linux_FS_IOC_GETFLAGS, &flags)
+	err = ioctl(f, unix.FS_IOC_GETFLAGS, &flags)
 	f.Close()
 	if err != nil {
+		if err == unix.ENOTTY {
+			return nil
+		}
 		return err
 	}
 
@@ -154,7 +175,7 @@ func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
 		if err != nil {
 			return err
 		}
-		err = ioctl(f, linux_FS_IOC_SETFLAGS, &flags)
+		err = ioctl(f, unix.FS_IOC_SETFLAGS, &flags)
 		f.Close()
 		if err != nil {
 			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
@@ -174,7 +195,7 @@ func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
 	}
 
 	if flags != 0 {
-		err := ioctl(f, linux_FS_IOC_SETFLAGS, &flags)
+		err := ioctl(f, unix.FS_IOC_SETFLAGS, &flags)
 		if err != nil {
 			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
 		}
