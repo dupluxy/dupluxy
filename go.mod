@@ -1,6 +1,6 @@
 module github.com/gilbertchen/duplicacy
 
-go 1.19
+go 1.20
 
 require (
 	cloud.google.com/go v0.38.0
@@ -22,7 +22,7 @@ require (
 	github.com/minio/highwayhash v1.0.2
 	github.com/ncw/swift/v2 v2.0.1
 	github.com/pkg/sftp v1.11.0
-	github.com/pkg/xattr v0.4.1
+	github.com/pkg/xattr v0.4.9
 	github.com/vmihailenco/msgpack v4.0.4+incompatible
 	golang.org/x/crypto v0.12.0
 	golang.org/x/net v0.10.0

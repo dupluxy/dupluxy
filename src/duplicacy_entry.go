@@ -591,8 +591,9 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOw
 		}
 	}
 
-	if entry.Attributes != nil && len(*entry.Attributes) > 0 {
-		entry.SetAttributesToFile(fullPath)
+	err := entry.SetAttributesToFile(fullPath)
+	if err != nil {
+		LOG_WARN("RESTORE_ATTR", "Failed to set extended attributes on %s: %v", entry.Path, err)
 	}
 
 	// Note that chown can remove setuid/setgid bits so should be called before chmod
@@ -621,10 +622,10 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOw
 		}
 	}
 
-	// TODO Set flags last
-	// if entry.Attributes != nil && len(*entry.Attributes) > 0 {
-	// 	entry.SetFlagsToFile(fullPath)
-	// }
+	err = entry.RestoreLateFileFlags(fullPath, fileInfo, 0) // TODO: implement mask
+	if err != nil {
+		LOG_WARN("RESTORE_FLAGS", "Failed to set file flags on %s: %v", entry.Path, err)
+	}
 
 	return true
 }
@@ -842,9 +843,11 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 			}
 		}
 
+		fullPath := joinPath(top, entry.Path)
+
 		if entry.IsLink() {
 			isRegular := false
-			isRegular, entry.Link, err = Readlink(joinPath(top, entry.Path))
+			isRegular, entry.Link, err = Readlink(fullPath)
 			if err != nil {
 				LOG_WARN("LIST_LINK", "Failed to read the symlink %s: %v", entry.Path, err)
 				skippedFiles = append(skippedFiles, entry.Path)
@@ -854,7 +857,7 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 			if isRegular {
 				entry.Mode ^= uint32(os.ModeSymlink)
 			} else if path == "" && (filepath.IsAbs(entry.Link) || filepath.HasPrefix(entry.Link, `\\`)) && !strings.HasPrefix(entry.Link, normalizedTop) {
-				stat, err := os.Stat(joinPath(top, entry.Path))
+				stat, err := os.Stat(fullPath)
 				if err != nil {
 					LOG_WARN("LIST_LINK", "Failed to read the symlink: %v", err)
 					skippedFiles = append(skippedFiles, entry.Path)
@@ -873,14 +876,20 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 				entry = newEntry
 			}
 		} else if entry.IsSpecial() {
-			if !entry.ReadSpecial(f) {
-				LOG_WARN("LIST_DEV", "Failed to save device node %s", entry.Path)
+			if err := entry.ReadSpecial(fullPath, f); err != nil {
+				LOG_WARN("LIST_DEV", "Failed to save device node %s: %v", entry.Path, err)
 				skippedFiles = append(skippedFiles, entry.Path)
 				continue
 			}
 		}
 
-		entry.ReadAttributes(top)
+		if err := entry.ReadAttributes(fullPath, f); err != nil {
+			LOG_WARN("LIST_ATTR", "Failed to read xattrs on %s: %v", entry.Path, err)
+		}
+
+		if err := entry.ReadFileFlags(fullPath, f); err != nil {
+			LOG_WARN("LIST_ATTR", "Failed to read file flags on %s: %v", entry.Path, err)
+		}
 
 		if excludeByAttribute && entry.Attributes != nil && excludedByAttribute(*entry.Attributes) {
 			LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute", entry.Path)

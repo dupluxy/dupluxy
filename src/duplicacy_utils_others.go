@@ -8,6 +8,7 @@
 package duplicacy
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -57,7 +58,7 @@ func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked 
 		return
 	}
 	stat := f.Sys().(*syscall.Stat_t)
-	if stat == nil || stat.Nlink < 2 {
+	if stat == nil || stat.Nlink <= 1 {
 		return
 	}
 	key.dev = uint64(stat.Dev)
@@ -66,19 +67,19 @@ func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked 
 	return
 }
 
-func (entry *Entry) ReadSpecial(fileInfo os.FileInfo) bool {
+func (entry *Entry) ReadSpecial(fullPath string, fileInfo os.FileInfo) error {
 	if fileInfo.Mode()&(os.ModeDevice|os.ModeCharDevice) == 0 {
-		return true
+		return nil
 	}
 	stat := fileInfo.Sys().(*syscall.Stat_t)
 	if stat == nil {
-		return false
+		return errors.New("file stat info missing")
 	}
 	entry.Size = 0
 	rdev := uint64(stat.Rdev)
 	entry.StartChunk = int(rdev & 0xFFFFFFFF)
 	entry.StartOffset = int(rdev >> 32)
-	return true
+	return nil
 }
 
 func (entry *Entry) GetRdev() uint64 {

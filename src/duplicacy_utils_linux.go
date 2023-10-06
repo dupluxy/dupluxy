@@ -7,8 +7,9 @@ package duplicacy
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 	"unsafe"
 
@@ -51,125 +52,55 @@ func ioctl(f *os.File, request uintptr, attrp *uint32) error {
 	return nil
 }
 
-type xattrHandle struct {
-	f        *os.File
-	fullPath string
+func excludedByAttribute(attributes map[string][]byte) bool {
+	_, excluded := attributes["user.duplicacy_exclude"]
+	if !excluded {
+		flags, ok := attributes[linuxFileFlagsKey]
+		excluded = ok && (binary.LittleEndian.Uint32(flags)&linux_FS_NODUMP_FL) != 0
+	}
+	return excluded
 }
 
-func (x xattrHandle) list() ([]string, error) {
-	if x.f != nil {
-		return xattr.FList(x.f)
-	} else {
-		return xattr.LList(x.fullPath)
+func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
+	attributes, err := xattr.LList(fullPath)
+	if err != nil {
+		return err
 	}
-}
-
-func (x xattrHandle) get(name string) ([]byte, error) {
-	if x.f != nil {
-		return xattr.FGet(x.f, name)
-	} else {
-		return xattr.LGet(x.fullPath, name)
-	}
-}
-
-func (x xattrHandle) set(name string, value []byte) error {
-	if x.f != nil {
-		return xattr.FSet(x.f, name, value)
-	} else {
-		return xattr.LSet(x.fullPath, name, value)
-	}
-}
-
-func (x xattrHandle) remove(name string) error {
-	if x.f != nil {
-		return xattr.FRemove(x.f, name)
-	} else {
-		return xattr.LRemove(x.fullPath, name)
-	}
-}
-
-func (entry *Entry) ReadAttributes(top string) {
-	fullPath := filepath.Join(top, entry.Path)
-	x := xattrHandle{nil, fullPath}
-
-	if !entry.IsLink() {
-		var err error
-		x.f, err = os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-		if err != nil {
-			// FIXME: We really should return errors for failure to read
-			return
-		}
-	}
-
-	attributes, _ := x.list()
 
 	if len(attributes) > 0 {
 		entry.Attributes = &map[string][]byte{}
 	}
+	var allErrors error
 	for _, name := range attributes {
-		attribute, err := x.get(name)
-		if err == nil {
-			(*entry.Attributes)[name] = attribute
-		}
-	}
-
-	if entry.IsFile() || entry.IsDir() {
-		if err := entry.readFileFlags(x.f); err != nil {
-			LOG_INFO("ATTR_BACKUP", "Could not backup flags for file %s: %v", fullPath, err)
-		}
-	}
-	x.f.Close()
-}
-
-func excludedByAttribute(attributes map[string][]byte) bool {
-	_, ok := attributes["user.duplicacy_exclude"]
-	return ok
-}
-
-func (entry *Entry) SetAttributesToFile(fullPath string) {
-	x := xattrHandle{nil, fullPath}
-	if !entry.IsLink() {
-		var err error
-		x.f, err = os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		value, err := xattr.LGet(fullPath, name)
 		if err != nil {
-			return
-		}
-	}
-
-	names, _ := x.list()
-
-	for _, name := range names {
-		newAttribute, found := (*entry.Attributes)[name]
-		if found {
-			oldAttribute, _ := x.get(name)
-			if !bytes.Equal(oldAttribute, newAttribute) {
-				x.set(name, newAttribute)
-			}
-			delete(*entry.Attributes, name)
+			allErrors = errors.Join(allErrors, err)
 		} else {
-			x.remove(name)
+			(*entry.Attributes)[name] = value
 		}
 	}
 
-	for name, attribute := range *entry.Attributes {
-		if len(name) > 0 && name[0] == '\x00' {
-			continue
-		}
-		x.set(name, attribute)
-	}
-	if entry.IsFile() || entry.IsDir() {
-		if err := entry.restoreLateFileFlags(x.f); err != nil {
-			LOG_DEBUG("ATTR_RESTORE", "Could not restore flags for file %s: %v", fullPath, err)
-		}
-	}
-	x.f.Close()
+	return allErrors
 }
 
-func (entry *Entry) readFileFlags(f *os.File) error {
-	var flags uint32
-	if err := ioctl(f, linux_FS_IOC_GETFLAGS, &flags); err != nil {
+func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
+	if !(entry.IsFile() || entry.IsDir()) {
+		return nil
+	}
+
+	f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
 		return err
 	}
+
+	var flags uint32
+
+	err = ioctl(f, linux_FS_IOC_GETFLAGS, &flags)
+	f.Close()
+	if err != nil {
+		return err
+	}
+
 	if flags != 0 {
 		if entry.Attributes == nil {
 			entry.Attributes = &map[string][]byte{}
@@ -177,49 +108,109 @@ func (entry *Entry) readFileFlags(f *os.File) error {
 		v := make([]byte, 4)
 		binary.LittleEndian.PutUint32(v, flags)
 		(*entry.Attributes)[linuxFileFlagsKey] = v
-		LOG_DEBUG("ATTR_READ", "Read flags 0x%x for %s", flags, entry.Path)
 	}
 	return nil
 }
 
-func (entry *Entry) RestoreEarlyDirFlags(path string) error {
+func (entry *Entry) SetAttributesToFile(fullPath string) error {
+	if entry.Attributes == nil || len(*entry.Attributes) == 0 {
+		return nil
+	}
+	attributes := *entry.Attributes
+
+	if _, haveFlags := attributes[linuxFileFlagsKey]; haveFlags && len(attributes) <= 1 {
+		return nil
+	}
+
+	names, err := xattr.LList(fullPath)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		newAttribute, found := (*entry.Attributes)[name]
+		if found {
+			oldAttribute, _ := xattr.LGet(fullPath, name)
+			if !bytes.Equal(oldAttribute, newAttribute) {
+				err = errors.Join(err, xattr.LSet(fullPath, name, newAttribute))
+			}
+			delete(*entry.Attributes, name)
+		} else {
+			err = errors.Join(err, xattr.LRemove(fullPath, name))
+		}
+	}
+
+	for name, attribute := range *entry.Attributes {
+		if len(name) > 0 && name[0] == '\x00' {
+			continue
+		}
+		err = errors.Join(err, xattr.LSet(fullPath, name, attribute))
+	}
+	return err
+}
+
+func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
 	if entry.Attributes == nil {
 		return nil
 	}
+	var flags uint32
+
 	if v, have := (*entry.Attributes)[linuxFileFlagsKey]; have {
-		flags := binary.LittleEndian.Uint32(v) & linuxIocFlagsDirEarly
-		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECTORY, 0)
+		flags = binary.LittleEndian.Uint32(v) & linuxIocFlagsDirEarly & ^mask
+	}
+
+	if flags != 0 {
+		f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_DIRECTORY, 0)
 		if err != nil {
 			return err
 		}
-		LOG_DEBUG("ATTR_RESTORE", "Restore dir flags (early) 0x%x for %s", flags, entry.Path)
 		err = ioctl(f, linux_FS_IOC_SETFLAGS, &flags)
 		f.Close()
-		return err
+		if err != nil {
+			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
+		}
 	}
 	return nil
 }
 
-func (entry *Entry) RestoreEarlyFileFlags(f *os.File) error {
+func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
 	if entry.Attributes == nil {
 		return nil
 	}
+	var flags uint32
+
 	if v, have := (*entry.Attributes)[linuxFileFlagsKey]; have {
-		flags := binary.LittleEndian.Uint32(v) & linuxIocFlagsFileEarly
-		LOG_DEBUG("ATTR_RESTORE", "Restore flags (early) 0x%x for %s", flags, entry.Path)
-		return ioctl(f, linux_FS_IOC_SETFLAGS, &flags)
+		flags = binary.LittleEndian.Uint32(v) & linuxIocFlagsFileEarly & ^mask
+	}
+
+	if flags != 0 {
+		err := ioctl(f, linux_FS_IOC_SETFLAGS, &flags)
+		if err != nil {
+			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
+		}
 	}
 	return nil
 }
 
-func (entry *Entry) restoreLateFileFlags(f *os.File) error {
-	if entry.Attributes == nil {
+func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, mask uint32) error {
+	if entry.IsLink() || entry.Attributes == nil {
 		return nil
 	}
+	var flags uint32
+
 	if v, have := (*entry.Attributes)[linuxFileFlagsKey]; have {
-		flags := binary.LittleEndian.Uint32(v) & (linuxIocFlagsFileEarly | linuxIocFlagsDirEarly | linuxIocFlagsLate)
-		LOG_DEBUG("ATTR_RESTORE", "Restore flags (late) 0x%x for %s", flags, entry.Path)
-		return ioctl(f, linux_FS_IOC_SETFLAGS, &flags)
+		flags = binary.LittleEndian.Uint32(v) & (linuxIocFlagsFileEarly | linuxIocFlagsDirEarly | linuxIocFlagsLate) & ^mask
+	}
+
+	if flags != 0 {
+		f, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		if err != nil {
+			return err
+		}
+		err = ioctl(f, linux_FS_IOC_SETFLAGS, &flags)
+		f.Close()
+		if err != nil {
+			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
+		}
 	}
 	return nil
 }
