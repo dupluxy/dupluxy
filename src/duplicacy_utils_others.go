@@ -38,7 +38,7 @@ func SetOwner(fullPath string, entry *Entry, fileInfo os.FileInfo) bool {
 		if entry.UID != -1 && entry.GID != -1 {
 			err := os.Lchown(fullPath, entry.UID, entry.GID)
 			if err != nil {
-				LOG_ERROR("RESTORE_CHOWN", "Failed to change uid or gid: %v", err)
+				LOG_ERROR("RESTORE_CHOWN", "Failed to change uid or gid on %s: %v", entry.Path, err)
 				return false
 			}
 		}
