@@ -850,13 +850,15 @@ func restoreRepository(context *cli.Context) {
 		password = duplicacy.GetPassword(*preference, "password", "Enter storage password:", false, false)
 	}
 
-	quickMode := !context.Bool("hash")
-	overwrite := context.Bool("overwrite")
-	deleteMode := context.Bool("delete")
-	setOwner := !context.Bool("ignore-owner")
-
-	showStatistics := context.Bool("stats")
-	persist := context.Bool("persist")
+	options := duplicacy.RestoreOptions{
+		InPlace: true,
+		QuickMode: !context.Bool("hash"),
+		Overwrite: context.Bool("overwrite"),
+		DeleteMode: context.Bool("delete"),
+		SetOwner: !context.Bool("ignore-owner"),
+		ShowStatistics: context.Bool("stats"),
+		AllowFailures: context.Bool("persist"),
+	}
 
 	var patterns []string
 	for _, pattern := range context.Args() {
@@ -874,7 +876,7 @@ func restoreRepository(context *cli.Context) {
 		patterns = append(patterns, pattern)
 	}
 
-	patterns = duplicacy.ProcessFilterLines(patterns, make([]string, 0))
+	options.Patterns = duplicacy.ProcessFilterLines(patterns, make([]string, 0))
 
 	duplicacy.LOG_DEBUG("REGEX_DEBUG", "There are %d compiled regular expressions stored", len(duplicacy.RegexMap))
 
@@ -887,7 +889,7 @@ func restoreRepository(context *cli.Context) {
 	loadRSAPrivateKey(context.String("key"), context.String("key-passphrase"), preference, backupManager, false)
 
 	backupManager.SetupSnapshotCache(preference.Name)
-	failed := backupManager.Restore(repository, revision, true, quickMode, threads, overwrite, deleteMode, setOwner, showStatistics, patterns, persist)
+	failed := backupManager.Restore(repository, revision, options)
 	if failed > 0 {
 		duplicacy.LOG_ERROR("RESTORE_FAIL", "%d file(s) were not restored correctly", failed)
 		return
