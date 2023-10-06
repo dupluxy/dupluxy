@@ -106,7 +106,7 @@ func GetOwner(entry *Entry, fileInfo *os.FileInfo) {
 	entry.GID = -1
 }
 
-func SetOwner(fullPath string, entry *Entry, fileInfo *os.FileInfo) bool {
+func SetOwner(fullPath string, entry *Entry, fileInfo os.FileInfo) bool {
 	return true
 }
 

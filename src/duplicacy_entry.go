@@ -580,11 +580,11 @@ func (entry *Entry) String(maxSizeDigits int) string {
 	return fmt.Sprintf("%*d %s %64s %s", maxSizeDigits, entry.Size, modifiedTime, entry.Hash, entry.Path)
 }
 
-func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setOwner bool) bool {
+func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo, setOwner bool) bool {
 
 	if fileInfo == nil {
-		stat, err := os.Lstat(fullPath)
-		fileInfo = &stat
+		var err error
+		fileInfo, err = os.Lstat(fullPath)
 		if err != nil {
 			LOG_ERROR("RESTORE_STAT", "Failed to retrieve the file info: %v", err)
 			return false
@@ -603,7 +603,7 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 	}
 
 	// Only set the permission if the file is not a symlink
-	if !entry.IsLink() && (*fileInfo).Mode()&fileModeMask != entry.GetPermissions() {
+	if !entry.IsLink() && fileInfo.Mode()&fileModeMask != entry.GetPermissions() {
 		err := os.Chmod(fullPath, entry.GetPermissions())
 		if err != nil {
 			LOG_ERROR("RESTORE_CHMOD", "Failed to set the file permissions: %v", err)
@@ -612,7 +612,7 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo *os.FileInfo, setO
 	}
 
 	// Only set the time if the file is not a symlink
-	if !entry.IsLink() && (*fileInfo).ModTime().Unix() != entry.Time {
+	if !entry.IsLink() && fileInfo.ModTime().Unix() != entry.Time {
 		modifiedTime := time.Unix(entry.Time, 0)
 		err := os.Chtimes(fullPath, modifiedTime, modifiedTime)
 		if err != nil {
