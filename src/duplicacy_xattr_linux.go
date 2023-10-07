@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"unsafe"
 
@@ -68,7 +69,7 @@ func ioctl(f *os.File, request uintptr, attrp *uint32) error {
 	})
 }
 
-func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
+func (entry *Entry) readAttributes(fi os.FileInfo, fullPath string, normalize bool) error {
 	attributes, err := xattr.LList(fullPath)
 	if err != nil {
 		return err
@@ -90,14 +91,18 @@ func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
 	return allErrors
 }
 
-func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
+func (entry *Entry) getFileFlags(fileInfo os.FileInfo) bool {
+	return false
+}
+
+func (entry *Entry) readFileFlags(fileInfo os.FileInfo, fullPath string) error {
 	// the linux file flags interface is quite depressing. The half assed attempt at statx
-	// doesn't even cover the flags we're interested in
+	// doesn't even cover the flags we're usually interested in for btrfs
 	if !(entry.IsFile() || entry.IsDir()) {
 		return nil
 	}
 
-	f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_NOATIME|unix.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_NOATIME, 0)
 	if err != nil {
 		return err
 	}
@@ -107,6 +112,7 @@ func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
 	err = ioctl(f, unix.FS_IOC_GETFLAGS, &flags)
 	f.Close()
 	if err != nil {
+		// inappropriate ioctl for device means flags aren't a thing on that FS
 		if err == unix.ENOTTY {
 			return nil
 		}
@@ -124,7 +130,7 @@ func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
 	return nil
 }
 
-func (entry *Entry) SetAttributesToFile(fullPath string, normalize bool) error {
+func (entry *Entry) setAttributesToFile(fullPath string, normalize bool) error {
 	if entry.Attributes == nil || len(*entry.Attributes) == 0 {
 		return nil
 	}
@@ -160,8 +166,8 @@ func (entry *Entry) SetAttributesToFile(fullPath string, normalize bool) error {
 	return err
 }
 
-func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
-	if entry.Attributes == nil || mask == 0xffffffff {
+func (entry *Entry) restoreEarlyDirFlags(fullPath string, mask uint32) error {
+	if entry.Attributes == nil || mask == math.MaxUint32 {
 		return nil
 	}
 	var flags uint32
@@ -184,8 +190,8 @@ func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
 	return nil
 }
 
-func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
-	if entry.Attributes == nil || mask == 0xffffffff {
+func (entry *Entry) restoreEarlyFileFlags(f *os.File, mask uint32) error {
+	if entry.Attributes == nil || mask == math.MaxUint32 {
 		return nil
 	}
 	var flags uint32
@@ -203,8 +209,8 @@ func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
 	return nil
 }
 
-func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, mask uint32) error {
-	if entry.IsLink() || entry.Attributes == nil || mask == 0xffffffff {
+func (entry *Entry) restoreLateFileFlags(fullPath string, fileInfo os.FileInfo, mask uint32) error {
+	if entry.IsLink() || entry.Attributes == nil || mask == math.MaxUint32 {
 		return nil
 	}
 	var flags uint32

@@ -54,6 +54,7 @@ type Preference struct {
 	ExcludeByAttribute bool              `json:"exclude_by_attribute"`
 	ExcludeXattrs      bool              `json:"exclude_xattrs"`
 	NormalizeXattrs    bool              `json:"normalize_xattrs"`
+	IncludeFileFlags   bool              `json:"include_file_flags"`
 	IncludeSpecials    bool              `json:"include_specials"`
 	FileFlagsMask      flagsMask         `json:"file_flags_mask"`
 }

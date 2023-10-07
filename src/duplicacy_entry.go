@@ -583,10 +583,11 @@ func (entry *Entry) String(maxSizeDigits int) string {
 }
 
 type RestoreMetadataOptions struct {
-	SetOwner bool
-	ExcludeXattrs bool
-	NormalizeXattrs bool
-	FileFlagsMask uint32
+	SetOwner         bool
+	ExcludeXattrs    bool
+	NormalizeXattrs  bool
+	IncludeFileFlags bool
+	FileFlagsMask    uint32
 }
 
 func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo,
@@ -634,9 +635,11 @@ func (entry *Entry) RestoreMetadata(fullPath string, fileInfo os.FileInfo,
 		}
 	}
 
-	err := entry.RestoreLateFileFlags(fullPath, fileInfo, options.FileFlagsMask)
-	if err != nil {
-		LOG_WARN("RESTORE_FLAGS", "Failed to set file flags on %s: %v", entry.Path, err)
+	if options.IncludeFileFlags {
+		err := entry.RestoreLateFileFlags(fullPath, fileInfo, options.FileFlagsMask)
+		if err != nil {
+			LOG_WARN("RESTORE_FLAGS", "Failed to set file flags on %s: %v", entry.Path, err)
+		}
 	}
 
 	return true
@@ -769,22 +772,39 @@ func (files FileInfoCompare) Less(i, j int) bool {
 	}
 }
 
-type ListingState struct {
+type EntryListerOptions struct {
+	Patterns           []string
+	NoBackupFile       string
+	ExcludeByAttribute bool
+	ExcludeXattrs      bool
+	NormalizeXattr     bool
+	IncludeFileFlags   bool
+	IncludeSpecials    bool
+}
+
+type EntryLister interface {
+	ListDir(top string, path string, listingChannel chan *Entry, options *EntryListerOptions) (directoryList []*Entry, skippedFiles []string, err error)
+}
+
+type LocalDirectoryLister struct {
 	linkIndex int
 	linkTable map[listEntryLinkKey]int // map unique inode details to initially found path
 }
 
-func NewListingState() *ListingState {
-	return &ListingState{
+func NewLocalDirectoryLister() *LocalDirectoryLister {
+	return &LocalDirectoryLister{
 		linkTable: make(map[listEntryLinkKey]int),
 	}
 }
 
-// ListEntries returns a list of entries representing file and subdirectories under the directory 'path'.  Entry paths
-// are normalized as relative to 'top'.  'patterns' are used to exclude or include certain files.
-func ListEntries(top string, path string, patterns []string, nobackupFile string, excludeByAttribute bool,
-	listingState *ListingState,
-	listingChannel chan *Entry) (directoryList []*Entry, skippedFiles []string, err error) {
+// ListDir returns a list of entries representing file and subdirectories under the directory 'path'.
+// Entry paths are normalized as relative to 'top'.
+func (dl *LocalDirectoryLister) ListDir(top string, path string, listingChannel chan *Entry,
+	options *EntryListerOptions) (directoryList []*Entry, skippedFiles []string, err error) {
+
+	if options == nil {
+		options = &EntryListerOptions{}
+	}
 
 	LOG_DEBUG("LIST_ENTRIES", "Listing %s", path)
 
@@ -797,10 +817,12 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 		return directoryList, nil, err
 	}
 
+	patterns := options.Patterns
+
 	// This binary search works because ioutil.ReadDir returns files sorted by Name() by default
-	if nobackupFile != "" {
-		ii := sort.Search(len(files), func(ii int) bool { return strings.Compare(files[ii].Name(), nobackupFile) >= 0 })
-		if ii < len(files) && files[ii].Name() == nobackupFile {
+	if options.NoBackupFile != "" {
+		ii := sort.Search(len(files), func(ii int) bool { return strings.Compare(files[ii].Name(), options.NoBackupFile) >= 0 })
+		if ii < len(files) && files[ii].Name() == options.NoBackupFile {
 			LOG_DEBUG("LIST_NOBACKUP", "%s is excluded due to nobackup file", path)
 			return directoryList, skippedFiles, nil
 		}
@@ -830,7 +852,7 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 
 		linkKey, isHardLinked := entry.getHardLinkKey(f)
 		if isHardLinked {
-			if linkIndex, seen := listingState.linkTable[linkKey]; seen {
+			if linkIndex, seen := dl.linkTable[linkKey]; seen {
 				if linkIndex == -1 {
 					LOG_DEBUG("LIST_EXCLUDE", "%s was excluded or skipped (hard link)", entry.Path)
 					continue
@@ -851,7 +873,7 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 				} else {
 					entry.EndChunk = entryHardLinkRootChunkMarker
 				}
-				listingState.linkTable[linkKey] = -1
+				dl.linkTable[linkKey] = -1
 			}
 		}
 
@@ -887,7 +909,7 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 				}
 				entry = newEntry
 			}
-		} else if entry.IsSpecial() {
+		} else if options.IncludeSpecials && entry.IsSpecial() {
 			if err := entry.ReadSpecial(fullPath, f); err != nil {
 				LOG_WARN("LIST_DEV", "Failed to save device node %s: %v", entry.Path, err)
 				skippedFiles = append(skippedFiles, entry.Path)
@@ -895,22 +917,27 @@ func ListEntries(top string, path string, patterns []string, nobackupFile string
 			}
 		}
 
-		if err := entry.ReadAttributes(fullPath, f); err != nil {
-			LOG_WARN("LIST_ATTR", "Failed to read xattrs on %s: %v", entry.Path, err)
+		if !options.ExcludeXattrs {
+			if err := entry.ReadAttributes(f, fullPath, false); err != nil {
+				LOG_WARN("LIST_ATTR", "Failed to read xattrs on %s: %v", entry.Path, err)
+			}
 		}
 
-		if err := entry.ReadFileFlags(fullPath, f); err != nil {
-			LOG_WARN("LIST_ATTR", "Failed to read file flags on %s: %v", entry.Path, err)
+		// if the flags are already in the FileInfo we can keep them
+		if !entry.GetFileFlags(f) && options.IncludeFileFlags {
+			if err := entry.ReadFileFlags(f, fullPath); err != nil {
+				LOG_WARN("LIST_ATTR", "Failed to read file flags on %s: %v", entry.Path, err)
+			}
 		}
 
-		if excludeByAttribute && entry.Attributes != nil && excludedByAttribute(*entry.Attributes) {
+		if options.ExcludeByAttribute && entry.Attributes != nil && excludedByAttribute(*entry.Attributes) {
 			LOG_DEBUG("LIST_EXCLUDE", "%s is excluded by attribute", entry.Path)
 			continue
 		}
 
 		if isHardLinked {
-			listingState.linkTable[linkKey] = listingState.linkIndex
-			listingState.linkIndex++
+			dl.linkTable[linkKey] = dl.linkIndex
+			dl.linkIndex++
 		}
 
 		if entry.IsDir() {

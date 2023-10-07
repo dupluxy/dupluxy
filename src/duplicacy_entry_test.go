@@ -7,7 +7,6 @@ package duplicacy
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -166,13 +165,13 @@ func TestEntryOrder(t *testing.T) {
 			continue
 		}
 
-		err := ioutil.WriteFile(fullPath, []byte(file), 0700)
+		err := os.WriteFile(fullPath, []byte(file), 0700)
 		if err != nil {
 			t.Errorf("WriteFile(%s) returned an error: %s", fullPath, err)
 		}
 	}
 
-	listingState := NewListingState()
+	lister := NewLocalDirectoryLister()
 
 	directories := make([]*Entry, 0, 4)
 	directories = append(directories, CreateEntry("", 0, 0, 0))
@@ -184,7 +183,7 @@ func TestEntryOrder(t *testing.T) {
 	for len(directories) > 0 {
 		directory := directories[len(directories)-1]
 		directories = directories[:len(directories)-1]
-		subdirectories, _, err := ListEntries(testDir, directory.Path, nil, "", false, listingState, entryChannel)
+		subdirectories, _, err := lister.ListDir(testDir, directory.Path, entryChannel, nil)
 		if err != nil {
 			t.Errorf("ListEntries(%s, %s) returned an error: %s", testDir, directory.Path, err)
 		}
@@ -277,7 +276,7 @@ func TestEntryExcludeByAttribute(t *testing.T) {
 			continue
 		}
 
-		err := ioutil.WriteFile(fullPath, []byte(file), 0700)
+		err := os.WriteFile(fullPath, []byte(file), 0700)
 		if err != nil {
 			t.Errorf("WriteFile(%s) returned an error: %s", fullPath, err)
 		}
@@ -293,7 +292,7 @@ func TestEntryExcludeByAttribute(t *testing.T) {
 	for _, excludeByAttribute := range [2]bool{true, false} {
 		t.Logf("testing excludeByAttribute: %t", excludeByAttribute)
 
-		listingState := NewListingState()
+		lister := NewLocalDirectoryLister()
 		directories := make([]*Entry, 0, 4)
 		directories = append(directories, CreateEntry("", 0, 0, 0))
 
@@ -304,7 +303,11 @@ func TestEntryExcludeByAttribute(t *testing.T) {
 		for len(directories) > 0 {
 			directory := directories[len(directories)-1]
 			directories = directories[:len(directories)-1]
-			subdirectories, _, err := ListEntries(testDir, directory.Path, nil, "", excludeByAttribute, listingState, entryChannel)
+			subdirectories, _, err := lister.ListDir(testDir, directory.Path, entryChannel,
+				&EntryListerOptions{
+					ExcludeByAttribute: excludeByAttribute,
+				})
+
 			if err != nil {
 				t.Errorf("ListEntries(%s, %s) returned an error: %s", testDir, directory.Path, err)
 			}

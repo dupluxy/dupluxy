@@ -789,9 +789,14 @@ func backupRepository(context *cli.Context) {
 	storage.SetRateLimits(0, uploadRateLimit)
 	backupManager := duplicacy.CreateBackupManager(preference.SnapshotID, storage, repository, password,
 		&duplicacy.BackupManagerOptions{
-			NoBackupFile:       preference.NobackupFile,
+			NobackupFile:       preference.NobackupFile,
 			FiltersFile:        preference.FiltersFile,
 			ExcludeByAttribute: preference.ExcludeByAttribute,
+			ExcludeXattrs:      preference.ExcludeXattrs,
+			NormalizeXattrs:    preference.NormalizeXattrs,
+			IncludeFileFlags:   preference.IncludeFileFlags,
+			IncludeSpecials:    preference.IncludeSpecials,
+			FileFlagsMask:      uint32(preference.FileFlagsMask),
 		})
 	duplicacy.SavePassword(*preference, "password", password)
 
@@ -885,7 +890,7 @@ func restoreRepository(context *cli.Context) {
 
 	backupManager := duplicacy.CreateBackupManager(preference.SnapshotID, storage, repository, password,
 		&duplicacy.BackupManagerOptions{
-			NoBackupFile:       preference.NobackupFile,
+			NobackupFile:       preference.NobackupFile,
 			FiltersFile:        preference.FiltersFile,
 			ExcludeByAttribute: preference.ExcludeByAttribute,
 			SetOwner:           excludeOwner,
@@ -1128,7 +1133,8 @@ func diff(context *cli.Context) {
 	loadRSAPrivateKey(context.String("key"), context.String("key-passphrase"), preference, backupManager, false)
 
 	backupManager.SetupSnapshotCache(preference.Name)
-	backupManager.SnapshotManager.Diff(repository, snapshotID, revisions, path, compareByHash, preference.NobackupFile, preference.FiltersFile, preference.ExcludeByAttribute)
+	backupManager.SnapshotManager.Diff(repository, snapshotID, revisions, path, compareByHash,
+		duplicacy.NewListFilesOptions(preference))
 
 	runScript(context, preference.Name, "post")
 }

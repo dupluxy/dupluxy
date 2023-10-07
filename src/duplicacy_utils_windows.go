@@ -143,30 +143,6 @@ func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked 
 	return
 }
 
-func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
-	return nil
-}
-
-func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
-	return nil
-}
-
-func (entry *Entry) SetAttributesToFile(fullPath string, normalize bool) error {
-	return nil
-}
-
-func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
-	return nil
-}
-
-func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
-	return nil
-}
-
-func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, mask uint32) error {
-	return nil
-}
-
 func (entry *Entry) ReadSpecial(fullPath string, fileInfo os.FileInfo) error {
 	return nil
 }

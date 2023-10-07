@@ -2,8 +2,8 @@
 // Free for personal use and commercial trial
 // Commercial use requires per-user licenses available from https://duplicacy.com
 
-//go:build freebsd || netbsd
-// +build freebsd netbsd
+//go:build freebsd
+// +build freebsd
 
 package duplicacy
 
