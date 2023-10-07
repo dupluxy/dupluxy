@@ -1,4 +1,4 @@
-# Dupluxe
+# Dupluxy
 
 An experimental Duplicacy derivative with improved support for preserving state on UNIX like systems. Produces snapshots compatible with Duplicacy.
 

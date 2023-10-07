@@ -1,4 +1,4 @@
-module github.com/gilbertchen/duplicacy
+module github.com/dupluxy/dupluxy
 
 go 1.20
 
