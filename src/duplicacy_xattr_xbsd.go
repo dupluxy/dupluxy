@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"math"
 	"os"
 	"syscall"
 	"unsafe"
@@ -32,7 +33,7 @@ func init() {
 	bsdIsSuperUser = syscall.Geteuid() == 0
 }
 
-func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
+func (entry *Entry) readAttributes(fi os.FileInfo, fullPath string, normalize bool) error {
 	if entry.IsSpecial() {
 		return nil
 	}
@@ -58,7 +59,7 @@ func (entry *Entry) ReadAttributes(fullPath string, fi os.FileInfo) error {
 	return allErrors
 }
 
-func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
+func (entry *Entry) getFileFlags(fileInfo os.FileInfo) bool {
 	stat := fileInfo.Sys().(*syscall.Stat_t)
 	if stat.Flags != 0 {
 		if entry.Attributes == nil {
@@ -68,10 +69,14 @@ func (entry *Entry) ReadFileFlags(fullPath string, fileInfo os.FileInfo) error {
 		binary.LittleEndian.PutUint32(v, stat.Flags)
 		(*entry.Attributes)[bsdFileFlagsKey] = v
 	}
+	return true
+}
+
+func (entry *Entry) readFileFlags(fileInfo os.FileInfo, fullPath string) error {
 	return nil
 }
 
-func (entry *Entry) SetAttributesToFile(fullPath string, normalize bool) error {
+func (entry *Entry) setAttributesToFile(fullPath string, normalize bool) error {
 	if entry.Attributes == nil || len(*entry.Attributes) == 0 || entry.IsSpecial() {
 		return nil
 	}
@@ -107,16 +112,16 @@ func (entry *Entry) SetAttributesToFile(fullPath string, normalize bool) error {
 	return err
 }
 
-func (entry *Entry) RestoreEarlyDirFlags(fullPath string, mask uint32) error {
+func (entry *Entry) restoreEarlyDirFlags(fullPath string, mask uint32) error {
 	return nil
 }
 
-func (entry *Entry) RestoreEarlyFileFlags(f *os.File, mask uint32) error {
+func (entry *Entry) restoreEarlyFileFlags(f *os.File, mask uint32) error {
 	return nil
 }
 
-func (entry *Entry) RestoreLateFileFlags(fullPath string, fileInfo os.FileInfo, mask uint32) error {
-	if mask == 0xffffffff {
+func (entry *Entry) restoreLateFileFlags(fullPath string, fileInfo os.FileInfo, mask uint32) error {
+	if mask == math.MaxUint32 {
 		return nil
 	}
 

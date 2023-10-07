@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -39,7 +40,7 @@ type BackupManager struct {
 }
 
 type BackupManagerOptions struct {
-	NoBackupFile       string // don't backup directory when this file name is found
+	NobackupFile       string // don't backup directory when this file name is found
 	FiltersFile        string // the path to the filters file
 	ExcludeByAttribute bool   // don't backup file based on file attribute
 	SetOwner           bool
@@ -69,6 +70,14 @@ func (manager *BackupManager) SetCompressionLevel(level int) {
 	manager.config.CompressionLevel = level
 }
 
+func (manager *BackupManager) Config() *Config {
+	return manager.config
+}
+
+func (manager *BackupManager) SnapshotCache() *FileStorage {
+	return manager.snapshotCache
+}
+
 // CreateBackupManager creates a backup manager using the specified 'storage'.  'snapshotID' is a unique id to
 // identify snapshots created for this repository.  'top' is the top directory of the repository.  'password' is the
 // master key which can be nil if encryption is not enabled.
@@ -94,7 +103,6 @@ func CreateBackupManager(snapshotID string, storage Storage, top string, passwor
 		SnapshotManager: snapshotManager,
 
 		config:  config,
-		options: *options,
 	}
 	if options != nil {
 		backupManager.options = *options
@@ -148,8 +156,7 @@ func (manager *BackupManager) SetupSnapshotCache(storageName string) bool {
 func (manager *BackupManager) Backup(top string, quickMode bool, threads int, tag string,
 	showStatistics bool, shadowCopy bool, shadowCopyTimeout int, enumOnly bool, metadataChunkSize int, maximumInMemoryEntries int) bool {
 
-	var err error
-	top, err = filepath.Abs(top)
+	top, err := filepath.Abs(top)
 	if err != nil {
 		LOG_ERROR("REPOSITORY_ERR", "Failed to obtain the absolute path of the repository: %v", err)
 		return false
@@ -255,8 +262,16 @@ func (manager *BackupManager) Backup(top string, quickMode bool, threads int, ta
 	go func() {
 		// List local files
 		defer CatchLogException()
-		localSnapshot.ListLocalFiles(shadowTop, manager.options.NoBackupFile, manager.options.FiltersFile,
-			manager.options.ExcludeByAttribute, localListingChannel, &skippedDirectories, &skippedFiles)
+		localSnapshot.ListLocalFiles(shadowTop, localListingChannel, &skippedDirectories, &skippedFiles,
+			&ListFilesOptions{
+				NoBackupFile:       manager.options.NobackupFile,
+				FiltersFile:        manager.options.FiltersFile,
+				ExcludeByAttribute: manager.options.ExcludeByAttribute,
+				ExcludeXattrs:      manager.options.ExcludeXattrs,
+				NormalizeXattr:     manager.options.NormalizeXattrs,
+				IncludeFileFlags:   manager.options.IncludeFileFlags,
+				IncludeSpecials:    manager.options.IncludeSpecials,
+			})
 	}()
 
 	go func() {
@@ -654,10 +669,11 @@ func (manager *BackupManager) Restore(top string, revision int, options *Restore
 	allowFailures := options.AllowFailures
 
 	metadataOptions := RestoreMetadataOptions{
-		SetOwner:        manager.options.SetOwner,
-		ExcludeXattrs:   manager.options.ExcludeXattrs,
-		NormalizeXattrs: manager.options.NormalizeXattrs,
-		FileFlagsMask:   manager.options.FileFlagsMask,
+		SetOwner:         manager.options.SetOwner,
+		ExcludeXattrs:    manager.options.ExcludeXattrs,
+		NormalizeXattrs:  manager.options.NormalizeXattrs,
+		IncludeFileFlags: manager.options.IncludeFileFlags,
+		FileFlagsMask:    manager.options.FileFlagsMask,
 	}
 
 	startTime := time.Now().Unix()
@@ -716,8 +732,16 @@ func (manager *BackupManager) Restore(top string, revision int, options *Restore
 	go func() {
 		// List local files
 		defer CatchLogException()
-		localSnapshot.ListLocalFiles(top, manager.options.NoBackupFile, manager.options.FiltersFile,
-			manager.options.ExcludeByAttribute, localListingChannel, nil, nil)
+		localSnapshot.ListLocalFiles(top, localListingChannel, nil, nil,
+			&ListFilesOptions{
+				NoBackupFile:       manager.options.NobackupFile,
+				FiltersFile:        manager.options.FiltersFile,
+				ExcludeByAttribute: manager.options.ExcludeByAttribute,
+				ExcludeXattrs:      manager.options.ExcludeXattrs,
+				NormalizeXattr:     manager.options.NormalizeXattrs,
+				IncludeFileFlags:   manager.options.IncludeFileFlags,
+				IncludeSpecials:    manager.options.IncludeSpecials,
+			})
 	}()
 
 	remoteSnapshot := manager.SnapshotManager.DownloadSnapshot(manager.snapshotID, revision)
@@ -859,9 +883,11 @@ func (manager *BackupManager) Restore(top string, revision int, options *Restore
 					return 0
 				}
 			}
-			err = remoteEntry.RestoreEarlyDirFlags(fullPath, manager.options.FileFlagsMask)
-			if err != nil {
-				LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
+			if metadataOptions.IncludeFileFlags {
+				err = remoteEntry.RestoreEarlyDirFlags(fullPath, manager.options.FileFlagsMask)
+				if err != nil {
+					LOG_WARN("DOWNLOAD_FLAGS", "Failed to set early file flags on %s: %v", fullPath, err)
+				}
 			}
 			directoryEntries = append(directoryEntries, remoteEntry)
 		} else if remoteEntry.IsSpecial() && manager.options.IncludeSpecials {
@@ -1005,9 +1031,13 @@ func (manager *BackupManager) Restore(top string, revision int, options *Restore
 			continue
 		}
 
+		fileFlagsMask := metadataOptions.FileFlagsMask
+		if !metadataOptions.IncludeFileFlags {
+			fileFlagsMask = math.MaxUint32
+		}
 		downloaded, err := manager.RestoreFile(chunkDownloader, chunkMaker, file, top, options.InPlace, overwrite,
 			options.ShowStatistics, totalFileSize, downloadedFileSize, startDownloadingTime, allowFailures,
-			metadataOptions.FileFlagsMask)
+			fileFlagsMask)
 		if err != nil {
 			// RestoreFile returned an error; if allowFailures is false RestoerFile would error out and not return so here
 			// we just need to show a warning
