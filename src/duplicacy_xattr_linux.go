@@ -33,9 +33,10 @@ const (
 	linux_FS_TOPDIR_FL       = 0x00020000 /* Top of directory hierarchies*/
 	linux_FS_NOCOW_FL        = 0x00800000 /* Do not cow file */
 	linux_FS_PROJINHERIT_FL  = 0x20000000 /* Create with parents projid */
+	linux_FS_CASEFOLD_FL     = 0x40000000 /* Folder is case insensitive */
 
 	linuxIocFlagsFileEarly = linux_FS_SECRM_FL | linux_FS_UNRM_FL | linux_FS_COMPR_FL | linux_FS_NODUMP_FL | linux_FS_NOATIME_FL | linux_FS_NOCOMP_FL | linux_FS_JOURNAL_DATA_FL | linux_FS_NOTAIL_FL | linux_FS_NOCOW_FL
-	linuxIocFlagsDirEarly  = linux_FS_TOPDIR_FL | linux_FS_PROJINHERIT_FL
+	linuxIocFlagsDirEarly  = linux_FS_TOPDIR_FL | linux_FS_PROJINHERIT_FL | linux_FS_CASEFOLD_FL
 	linuxIocFlagsLate      = linux_FS_SYNC_FL | linux_FS_IMMUTABLE_FL | linux_FS_APPEND_FL | linux_FS_DIRSYNC_FL
 
 	linuxFileFlagsKey = "\x00lf"
@@ -118,6 +119,9 @@ func (entry *Entry) readFileFlags(fileInfo os.FileInfo, fullPath string) error {
 		}
 		return err
 	}
+
+	// only store the modifiable flags
+	flags &= (linuxIocFlagsDirEarly | linuxIocFlagsFileEarly | linuxIocFlagsDirEarly)
 
 	if flags != 0 {
 		if entry.Attributes == nil {
