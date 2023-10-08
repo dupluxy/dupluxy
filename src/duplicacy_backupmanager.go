@@ -539,6 +539,7 @@ func (manager *BackupManager) Backup(top string, quickMode bool, threads int, ta
 			localSnapshot.Options += " -vss"
 		}
 	}
+	localSnapshot.Top = top
 
 	var uploadedFileSize int64
 	var totalFileChunkLength int64

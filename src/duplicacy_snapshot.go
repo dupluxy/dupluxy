@@ -11,12 +11,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/vmihailenco/msgpack"
 )
+
+var generatorStamp string
+var hostname string
+
+func init() {
+	hostname, _ = os.Hostname()
+}
 
 // Snapshot represents a backup of the repository.
 type Snapshot struct {
@@ -29,6 +37,10 @@ type Snapshot struct {
 	EndTime       int64  // at what time the snapshot was done
 	FileSize      int64  // total file size
 	NumberOfFiles int64  // number of files
+	Generator     string // the program and version used to create the snapshot
+	OS            string // the OS used to create the snapshot
+	Host          string // the hostname of the system
+	Top           string // the top level directory of the snapshot
 
 	// A sequence of chunks whose aggregated content is the json representation of 'Files'.
 	FileSequence []string
@@ -46,13 +58,21 @@ type Snapshot struct {
 
 }
 
+// Sets the name and version string placed in the snapshots
+func SetSnapshotGeneratorStamp(stamp string) {
+	generatorStamp = stamp
+}
+
 // CreateEmptySnapshot creates an empty snapshot.
-func CreateEmptySnapshot(id string) (snapshto *Snapshot) {
+func CreateEmptySnapshot(id string) *Snapshot {
 	return &Snapshot{
 		Version:   1,
 		ID:        id,
 		Revision:  0,
 		StartTime: time.Now().Unix(),
+		Generator: generatorStamp,
+		OS:        runtime.GOOS,
+		Host:      hostname,
 	}
 }
 
@@ -393,15 +413,26 @@ func CreateSnapshotFromDescription(description []byte) (snapshot *Snapshot, err 
 	}
 
 	if value, ok := root["file_size"]; ok {
-		if _, ok = value.(float64); ok {
-			snapshot.FileSize = int64(value.(float64))
-		}
+		value, _ := value.(float64)
+		snapshot.FileSize = int64(value)
 	}
 
 	if value, ok := root["number_of_files"]; ok {
-		if _, ok = value.(float64); ok {
-			snapshot.NumberOfFiles = int64(value.(float64))
-		}
+		value, _ := value.(float64)
+		snapshot.NumberOfFiles = int64(value)
+	}
+
+	if value, ok := root["generator"]; ok {
+		snapshot.Generator, _ = value.(string)
+	}
+	if value, ok := root["os"]; ok {
+		snapshot.OS, _ = value.(string)
+	}
+	if value, ok := root["host"]; ok {
+		snapshot.Host, _ = value.(string)
+	}
+	if value, ok := root["top"]; ok {
+		snapshot.Top, _ = value.(string)
 	}
 
 	for _, sequenceType := range []string{"files", "chunks", "lengths"} {
@@ -479,6 +510,16 @@ func (snapshot *Snapshot) MarshalJSON() ([]byte, error) {
 	if snapshot.FileSize != 0 && snapshot.NumberOfFiles != 0 {
 		object["file_size"] = snapshot.FileSize
 		object["number_of_files"] = snapshot.NumberOfFiles
+	}
+	if snapshot.Generator != "" {
+		object["generator"] = snapshot.Generator
+	}
+	object["os"] = snapshot.OS
+	if snapshot.Host != "" {
+		object["host"] = snapshot.Host
+	}
+	if snapshot.Top != "" {
+		object["top"] = snapshot.Top
 	}
 	object["files"] = encodeSequence(snapshot.FileSequence)
 	object["chunks"] = encodeSequence(snapshot.ChunkSequence)

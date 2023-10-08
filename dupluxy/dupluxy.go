@@ -2290,6 +2290,8 @@ func main() {
 	app.Usage = "Duplicacy derived cloud backup tool"
 	app.Version = Version + " (" + GitCommit + ")"
 
+	duplicacy.SetSnapshotGeneratorStamp(app.Name + " " + app.Version)
+
 	// Exit with code 2 if an invalid command is provided
 	app.CommandNotFound = func(context *cli.Context, command string) {
 		fmt.Fprintf(context.App.Writer, "Invalid command: %s\n", command)
