@@ -888,6 +888,8 @@ func restoreRepository(context *cli.Context) {
 
 	backupManager.SetupSnapshotCache(preference.Name)
 	failed := backupManager.Restore(repository, revision, &duplicacy.RestoreOptions{
+		Threads:        threads,
+		Patterns:       patterns,
 		InPlace:        true,
 		QuickMode:      !context.Bool("hash"),
 		Overwrite:      context.Bool("overwrite"),
