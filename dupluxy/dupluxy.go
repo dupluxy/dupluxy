@@ -2216,6 +2216,39 @@ func main() {
 			ArgsUsage: " ",
 			Action:    benchmark,
 		},
+		{
+			Name: "dump",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:     "id",
+					Usage:    "retrieve from the snapshot with the specified id",
+					Argument: "<snapshot id>",
+				},
+				cli.IntFlag{
+					Name:     "r",
+					Usage:    "the revision number of the snapshot",
+					Argument: "<revision>",
+				},
+				cli.StringFlag{
+					Name:     "storage",
+					Usage:    "retrieve the file from the specified storage",
+					Argument: "<storage name>",
+				},
+				cli.StringFlag{
+					Name:     "key",
+					Usage:    "the RSA private key to decrypt file chunks",
+					Argument: "<private key>",
+				},
+				cli.StringFlag{
+					Name:     "key-passphrase",
+					Usage:    "the passphrase to decrypt the RSA private key",
+					Argument: "<private key passphrase>",
+				},
+			},
+			Usage:     "Print a full snapshot entry list",
+			ArgsUsage: "[--] [pattern] ...",
+			Action:    listingDump,
+		},
 	}
 
 	app.Flags = []cli.Flag{
