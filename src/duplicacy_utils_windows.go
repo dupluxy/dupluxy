@@ -139,7 +139,7 @@ func excludedByAttribute(attributes map[string][]byte) bool {
 
 type listEntryLinkKey struct{}
 
-func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked bool) {
+func getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked bool) {
 	return
 }
 
@@ -157,4 +157,12 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 
 func (entry *Entry) FmtSpecial() string {
 	return ""
+}
+
+type fsId int
+
+const invalidFsId fsId = -1
+
+func getFsId(fi os.FileInfo) fsId {
+	return 0
 }

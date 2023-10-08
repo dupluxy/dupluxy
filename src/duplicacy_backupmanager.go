@@ -49,6 +49,22 @@ type BackupManagerOptions struct {
 	IncludeFileFlags   bool
 	IncludeSpecials    bool
 	FileFlagsMask      uint32
+	OneFileSystem      bool
+}
+
+func NewBackupManagerOptions(p *Preference) *BackupManagerOptions {
+	return &BackupManagerOptions{
+		NobackupFile:       p.NobackupFile,
+		FiltersFile:        p.FiltersFile,
+		ExcludeByAttribute: p.ExcludeByAttribute,
+		SetOwner:           !p.ExcludeOwner,
+		ExcludeXattrs:      p.ExcludeXattrs,
+		NormalizeXattrs:    p.NormalizeXattrs,
+		IncludeFileFlags:   p.IncludeFileFlags,
+		IncludeSpecials:    p.IncludeSpecials,
+		FileFlagsMask:      uint32(p.FileFlagsMask),
+		OneFileSystem:      p.OneFileSystem,
+	}
 }
 
 type RestoreOptions struct {
@@ -102,7 +118,7 @@ func CreateBackupManager(snapshotID string, storage Storage, top string, passwor
 
 		SnapshotManager: snapshotManager,
 
-		config:  config,
+		config: config,
 	}
 	if options != nil {
 		backupManager.options = *options
@@ -264,13 +280,14 @@ func (manager *BackupManager) Backup(top string, quickMode bool, threads int, ta
 		defer CatchLogException()
 		localSnapshot.ListLocalFiles(shadowTop, localListingChannel, &skippedDirectories, &skippedFiles,
 			&ListFilesOptions{
-				NoBackupFile:       manager.options.NobackupFile,
+				NobackupFile:       manager.options.NobackupFile,
 				FiltersFile:        manager.options.FiltersFile,
 				ExcludeByAttribute: manager.options.ExcludeByAttribute,
 				ExcludeXattrs:      manager.options.ExcludeXattrs,
-				NormalizeXattr:     manager.options.NormalizeXattrs,
+				NormalizeXattrs:    manager.options.NormalizeXattrs,
 				IncludeFileFlags:   manager.options.IncludeFileFlags,
 				IncludeSpecials:    manager.options.IncludeSpecials,
+				OneFileSystem:      manager.options.OneFileSystem,
 			})
 	}()
 
@@ -735,13 +752,14 @@ func (manager *BackupManager) Restore(top string, revision int, options *Restore
 		defer CatchLogException()
 		localSnapshot.ListLocalFiles(top, localListingChannel, nil, nil,
 			&ListFilesOptions{
-				NoBackupFile:       manager.options.NobackupFile,
+				NobackupFile:       manager.options.NobackupFile,
 				FiltersFile:        manager.options.FiltersFile,
 				ExcludeByAttribute: manager.options.ExcludeByAttribute,
 				ExcludeXattrs:      manager.options.ExcludeXattrs,
-				NormalizeXattr:     manager.options.NormalizeXattrs,
+				NormalizeXattrs:    manager.options.NormalizeXattrs,
 				IncludeFileFlags:   manager.options.IncludeFileFlags,
 				IncludeSpecials:    manager.options.IncludeSpecials,
+				OneFileSystem:      manager.options.OneFileSystem,
 			})
 	}()
 

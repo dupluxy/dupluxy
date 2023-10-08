@@ -7,6 +7,7 @@ package duplicacy
 import (
 	"encoding/binary"
 	"os"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -35,4 +36,12 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 		return nil
 	}
 	return unix.Mknod(fullPath, mode, int(entry.GetRdev()))
+}
+
+type fsId uint64
+
+const invalidFsId fsId = 0
+
+func getFsId(fi os.FileInfo) fsId {
+	return fsId(fi.Sys().(*syscall.Stat_t).Dev)
 }

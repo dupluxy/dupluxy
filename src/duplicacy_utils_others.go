@@ -29,7 +29,7 @@ func GetOwner(entry *Entry, fileInfo os.FileInfo) {
 
 func SetOwner(fullPath string, entry *Entry, fileInfo os.FileInfo) bool {
 	stat := fileInfo.Sys().(*syscall.Stat_t)
-	if (int(stat.Uid) != entry.UID || int(stat.Gid) != entry.GID) {
+	if int(stat.Uid) != entry.UID || int(stat.Gid) != entry.GID {
 		if entry.UID != -1 && entry.GID != -1 {
 			err := os.Lchown(fullPath, entry.UID, entry.GID)
 			if err != nil {
@@ -47,8 +47,8 @@ type listEntryLinkKey struct {
 	ino uint64
 }
 
-func (entry *Entry) getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked bool) {
-	if entry.IsDir() {
+func getHardLinkKey(f os.FileInfo) (key listEntryLinkKey, linked bool) {
+	if f.IsDir() {
 		return
 	}
 	stat := f.Sys().(*syscall.Stat_t)
