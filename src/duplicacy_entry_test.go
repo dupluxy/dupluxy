@@ -249,10 +249,16 @@ func TestEntryExcludeByAttribute(t *testing.T) {
 		t.Skip("skipping test, not darwin, linux, freebsd, or netbsd")
 	}
 
-	testDir := filepath.Join(os.TempDir(), "duplicacy_test")
-
-	os.RemoveAll(testDir)
-	os.MkdirAll(testDir, 0700)
+	tmpDir := ""
+	// on linux TempDir is usually a tmpfs which does not support xattrs
+	if runtime.GOOS == "linux" {
+		tmpDir = "."
+	}
+	testDir, err := os.MkdirTemp(tmpDir, "duplicacy_test")
+	if err != nil {
+		t.Errorf("Mkdirtmp() failed: %v", err)
+		return
+	}
 
 	// Files or folders named with "exclude" below will have the exclusion attribute set on them
 	// When ListEntries is called with excludeByAttribute true, they should be excluded.
@@ -356,10 +362,9 @@ func TestEntryExcludeByAttribute(t *testing.T) {
 
 	}
 
-	if !t.Failed() {
+	if tmpDir != "" || !t.Failed() {
 		os.RemoveAll(testDir)
 	}
-
 }
 
 func TestEntryEncoding(t *testing.T) {
