@@ -57,6 +57,7 @@ type Preference struct {
 	IncludeFileFlags   bool              `json:"include_file_flags"`
 	IncludeSpecials    bool              `json:"include_specials"`
 	FileFlagsMask      flagsMask         `json:"file_flags_mask"`
+	OneFileSystem      bool              `json:"one_file_system"`
 }
 
 var preferencePath string

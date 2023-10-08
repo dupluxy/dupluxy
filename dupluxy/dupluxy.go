@@ -789,16 +789,7 @@ func backupRepository(context *cli.Context) {
 	enumOnly := context.Bool("enum-only")
 	storage.SetRateLimits(0, uploadRateLimit)
 	backupManager := duplicacy.CreateBackupManager(preference.SnapshotID, storage, repository, password,
-		&duplicacy.BackupManagerOptions{
-			NobackupFile:       preference.NobackupFile,
-			FiltersFile:        preference.FiltersFile,
-			ExcludeByAttribute: preference.ExcludeByAttribute,
-			ExcludeXattrs:      preference.ExcludeXattrs,
-			NormalizeXattrs:    preference.NormalizeXattrs,
-			IncludeFileFlags:   preference.IncludeFileFlags,
-			IncludeSpecials:    preference.IncludeSpecials,
-			FileFlagsMask:      uint32(preference.FileFlagsMask),
-		})
+		duplicacy.NewBackupManagerOptions(preference))
 	duplicacy.SavePassword(*preference, "password", password)
 
 	backupManager.SetupSnapshotCache(preference.Name)
@@ -883,23 +874,13 @@ func restoreRepository(context *cli.Context) {
 
 	storage.SetRateLimits(context.Int("limit-rate"), 0)
 
-	excludeOwner := preference.ExcludeOwner
+	options := duplicacy.NewBackupManagerOptions(preference)
 	// TODO: for backward compat, eventually make them all overridable?
 	if context.IsSet("ignore-owner") {
-		excludeOwner = context.Bool("ignore-owner")
+		options.SetOwner = !context.Bool("ignore-owner")
 	}
 
-	backupManager := duplicacy.CreateBackupManager(preference.SnapshotID, storage, repository, password,
-		&duplicacy.BackupManagerOptions{
-			NobackupFile:       preference.NobackupFile,
-			FiltersFile:        preference.FiltersFile,
-			ExcludeByAttribute: preference.ExcludeByAttribute,
-			SetOwner:           excludeOwner,
-			ExcludeXattrs:      preference.ExcludeXattrs,
-			NormalizeXattrs:    preference.NormalizeXattrs,
-			IncludeSpecials:    preference.IncludeSpecials,
-			FileFlagsMask:      uint32(preference.FileFlagsMask),
-		})
+	backupManager := duplicacy.CreateBackupManager(preference.SnapshotID, storage, repository, password, options)
 
 	duplicacy.SavePassword(*preference, "password", password)
 
@@ -953,8 +934,7 @@ func listSnapshots(context *cli.Context) {
 	tag := context.String("t")
 	revisions := getRevisions(context)
 
-	backupManager := duplicacy.CreateBackupManager(preference.SnapshotID, storage, repository, password,
-		&duplicacy.BackupManagerOptions{ExcludeByAttribute: preference.ExcludeByAttribute})
+	backupManager := duplicacy.CreateBackupManager(preference.SnapshotID, storage, repository, password, nil)
 	duplicacy.SavePassword(*preference, "password", password)
 
 	id := preference.SnapshotID

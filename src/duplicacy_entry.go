@@ -78,9 +78,7 @@ func CreateEntry(path string, size int64, time int64, mode uint32) *Entry {
 }
 
 // CreateEntryFromFileInfo creates an entry from a 'FileInfo' object.
-func CreateEntryFromFileInfo(fileInfo os.FileInfo, directory string) *Entry {
-	path := directory + fileInfo.Name()
-
+func CreateEntryFromFileInfo(fileInfo os.FileInfo, path string) *Entry {
 	mode := fileInfo.Mode()
 
 	if mode&os.ModeDir != 0 && mode&os.ModeSymlink != 0 {
@@ -780,35 +778,49 @@ type EntryListerOptions struct {
 	NormalizeXattr     bool
 	IncludeFileFlags   bool
 	IncludeSpecials    bool
+	OneFileSystem      bool
 }
 
 type EntryLister interface {
-	ListDir(top string, path string, listingChannel chan *Entry, options *EntryListerOptions) (directoryList []*Entry, skippedFiles []string, err error)
+	ListDir(path string, listingChannel chan *Entry) (directoryList []*Entry, skippedFiles []string, err error)
 }
 
 type LocalDirectoryLister struct {
 	linkIndex int
 	linkTable map[listEntryLinkKey]int // map unique inode details to initially found path
+	top       string
+	fsId      fsId
+	options   *EntryListerOptions
 }
 
-func NewLocalDirectoryLister() *LocalDirectoryLister {
+func NewLocalDirectoryLister(top string, options *EntryListerOptions) *LocalDirectoryLister {
+	if options == nil {
+		options = &EntryListerOptions{}
+	}
+
+	fsId := invalidFsId
+	fi, err := os.Stat(top)
+	if err == nil {
+		fsId = getFsId(fi)
+	} else if options.OneFileSystem {
+		LOG_ERROR("LIST_ENTRIES", "Failed to identify filesystem ID: %v", err)
+	}
+
 	return &LocalDirectoryLister{
 		linkTable: make(map[listEntryLinkKey]int),
+		top:       top,
+		fsId:      fsId,
+		options:   options,
 	}
 }
 
 // ListDir returns a list of entries representing file and subdirectories under the directory 'path'.
 // Entry paths are normalized as relative to 'top'.
-func (dl *LocalDirectoryLister) ListDir(top string, path string, listingChannel chan *Entry,
-	options *EntryListerOptions) (directoryList []*Entry, skippedFiles []string, err error) {
-
-	if options == nil {
-		options = &EntryListerOptions{}
-	}
-
+func (dl *LocalDirectoryLister) ListDir(path string, listingChannel chan *Entry) (directoryList []*Entry, skippedFiles []string, err error) {
 	LOG_DEBUG("LIST_ENTRIES", "Listing %s", path)
 
-	fullPath := joinPath(top, path)
+	options := dl.options
+	fullPath := joinPath(dl.top, path)
 
 	files := make([]os.FileInfo, 0, 1024)
 
@@ -833,7 +845,7 @@ func (dl *LocalDirectoryLister) ListDir(top string, path string, listingChannel 
 		normalizedPath += "/"
 	}
 
-	normalizedTop := top
+	normalizedTop := dl.top
 	if normalizedTop != "" && normalizedTop[len(normalizedTop)-1] != '/' {
 		normalizedTop += "/"
 	}
@@ -845,12 +857,20 @@ func (dl *LocalDirectoryLister) ListDir(top string, path string, listingChannel 
 			continue
 		}
 
-		entry := CreateEntryFromFileInfo(f, normalizedPath)
-		if len(patterns) > 0 && !MatchPath(entry.Path, patterns) {
+		path := normalizedPath + f.Name()
+
+		if options.OneFileSystem && getFsId(f) != dl.fsId {
+			LOG_DEBUG("LIST_EXCLUDE", "Skipping %s on different filesystem", path)
 			continue
 		}
 
-		linkKey, isHardLinked := entry.getHardLinkKey(f)
+		if len(patterns) > 0 && !MatchPath(path, patterns) {
+			continue
+		}
+
+		entry := CreateEntryFromFileInfo(f, path)
+
+		linkKey, isHardLinked := getHardLinkKey(f)
 		if isHardLinked {
 			if linkIndex, seen := dl.linkTable[linkKey]; seen {
 				if linkIndex == -1 {
@@ -877,7 +897,7 @@ func (dl *LocalDirectoryLister) ListDir(top string, path string, listingChannel 
 			}
 		}
 
-		fullPath := joinPath(top, entry.Path)
+		fullPath := joinPath(dl.top, entry.Path)
 
 		if entry.IsLink() {
 			isRegular := false
@@ -898,7 +918,7 @@ func (dl *LocalDirectoryLister) ListDir(top string, path string, listingChannel 
 					continue
 				}
 
-				newEntry := CreateEntryFromFileInfo(stat, "")
+				newEntry := CreateEntryFromFileInfo(stat, stat.Name())
 				if runtime.GOOS == "windows" {
 					// On Windows, stat.Name() is the last component of the target, so we need to construct the correct
 					// path from f.Name(); note that a "/" is append assuming a symbolic link is always a directory

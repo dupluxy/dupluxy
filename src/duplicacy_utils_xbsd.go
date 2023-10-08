@@ -36,3 +36,11 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 	}
 	return syscall.Mknod(fullPath, mode, entry.GetRdev())
 }
+
+type fsId uint64
+
+const invalidFsId fsId = 0
+
+func getFsId(fi os.FileInfo) fsId {
+	return fsId(fi.Sys().(*syscall.Stat_t).Dev)
+}

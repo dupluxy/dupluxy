@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"os"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -35,4 +36,12 @@ func (entry *Entry) RestoreSpecial(fullPath string) error {
 		return nil
 	}
 	return unix.Mknod(fullPath, mode, int(entry.GetRdev()))
+}
+
+type fsId int32
+
+const invalidFsId fsId = 0
+
+func getFsId(fi os.FileInfo) fsId {
+	return fsId(fi.Sys().(*syscall.Stat_t).Dev)
 }

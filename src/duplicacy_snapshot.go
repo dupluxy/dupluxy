@@ -82,24 +82,26 @@ type DirectoryListing struct {
 }
 
 type ListFilesOptions struct {
-	NoBackupFile       string
+	NobackupFile       string
 	FiltersFile        string
 	ExcludeByAttribute bool
 	ExcludeXattrs      bool
-	NormalizeXattr     bool
+	NormalizeXattrs    bool
 	IncludeFileFlags   bool
 	IncludeSpecials    bool
+	OneFileSystem      bool
 }
 
 func NewListFilesOptions(p *Preference) *ListFilesOptions {
 	return &ListFilesOptions{
-		NoBackupFile:       p.NobackupFile,
+		NobackupFile:       p.NobackupFile,
 		FiltersFile:        p.FiltersFile,
 		ExcludeByAttribute: p.ExcludeByAttribute,
 		ExcludeXattrs:      p.ExcludeXattrs,
-		NormalizeXattr:     p.NormalizeXattrs,
+		NormalizeXattrs:    p.NormalizeXattrs,
 		IncludeFileFlags:   p.IncludeFileFlags,
 		IncludeSpecials:    p.IncludeSpecials,
+		OneFileSystem:      p.OneFileSystem,
 	}
 }
 
@@ -112,7 +114,16 @@ func (snapshot *Snapshot) ListLocalFiles(top string,
 	}
 
 	patterns := ProcessFilters(options.FiltersFile)
-	lister := NewLocalDirectoryLister()
+	lister := NewLocalDirectoryLister(top, &EntryListerOptions{
+		Patterns:           patterns,
+		NoBackupFile:       options.NobackupFile,
+		ExcludeByAttribute: options.ExcludeByAttribute,
+		ExcludeXattrs:      options.ExcludeXattrs,
+		NormalizeXattr:     options.NormalizeXattrs,
+		IncludeFileFlags:   options.IncludeFileFlags,
+		IncludeSpecials:    options.IncludeSpecials,
+		OneFileSystem:      options.OneFileSystem,
+	})
 
 	directories := make([]*Entry, 0, 256)
 	directories = append(directories, CreateEntry("", 0, 0, 0))
@@ -121,16 +132,7 @@ func (snapshot *Snapshot) ListLocalFiles(top string,
 
 		directory := directories[len(directories)-1]
 		directories = directories[:len(directories)-1]
-		subdirectories, skipped, err := lister.ListDir(top, directory.Path, listingChannel,
-			&EntryListerOptions{
-				Patterns:           patterns,
-				NoBackupFile:       options.NoBackupFile,
-				ExcludeByAttribute: options.ExcludeByAttribute,
-				ExcludeXattrs:      options.ExcludeXattrs,
-				NormalizeXattr:     options.NormalizeXattr,
-				IncludeFileFlags:   options.IncludeFileFlags,
-				IncludeSpecials:    options.IncludeSpecials,
-			})
+		subdirectories, skipped, err := lister.ListDir(directory.Path, listingChannel)
 		if err != nil {
 			if directory.Path == "" {
 				LOG_ERROR("LIST_FAILURE", "Failed to list the repository root: %v", err)
