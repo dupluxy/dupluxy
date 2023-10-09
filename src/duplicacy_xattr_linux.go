@@ -39,36 +39,8 @@ const (
 	linuxIocFlagsDirEarly  = linux_FS_TOPDIR_FL | linux_FS_PROJINHERIT_FL | linux_FS_CASEFOLD_FL
 	linuxIocFlagsLate      = linux_FS_SYNC_FL | linux_FS_IMMUTABLE_FL | linux_FS_APPEND_FL | linux_FS_DIRSYNC_FL
 
-	linuxFileFlagsKey = "\x00lf"
+	linuxFileFlagsKey = "\x00L"
 )
-
-var (
-	errENOTTY error = unix.ENOTTY
-)
-
-func ignoringEINTR(fn func() error) (err error) {
-	for {
-		err = fn()
-		if err != unix.EINTR {
-			break
-		}
-	}
-	return err
-}
-
-func ioctl(f *os.File, request uintptr, attrp *uint32) error {
-	return ignoringEINTR(func() error {
-		argp := uintptr(unsafe.Pointer(attrp))
-
-		_, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), request, argp)
-		if errno == 0 {
-			return nil
-		} else if errno == unix.ENOTTY {
-			return errENOTTY
-		}
-		return errno
-	})
-}
 
 func (entry *Entry) readAttributes(fi os.FileInfo, fullPath string, normalize bool) error {
 	attributes, err := xattr.LList(fullPath)
@@ -103,15 +75,13 @@ func (entry *Entry) readFileFlags(fileInfo os.FileInfo, fullPath string) error {
 		return nil
 	}
 
-	f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_NOATIME, 0)
+	fd, err := openForChFlagsTryNoAtime(fullPath)
 	if err != nil {
 		return err
 	}
+	flags, err := ioctlGetUint32Retry(fd, unix.FS_IOC_GETFLAGS)
+	closeRetry(fd)
 
-	var flags uint32
-
-	err = ioctl(f, unix.FS_IOC_GETFLAGS, &flags)
-	f.Close()
 	if err != nil {
 		// inappropriate ioctl for device means flags aren't a thing on that FS
 		if err == unix.ENOTTY {
@@ -185,7 +155,7 @@ func (entry *Entry) restoreEarlyDirFlags(fullPath string, mask uint32) error {
 		if err != nil {
 			return err
 		}
-		err = ioctl(f, unix.FS_IOC_SETFLAGS, &flags)
+		err = ioctlSetUint32Retry(int(f.Fd()), unix.FS_IOC_SETFLAGS, flags)
 		f.Close()
 		if err != nil {
 			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
@@ -205,7 +175,7 @@ func (entry *Entry) restoreEarlyFileFlags(f *os.File, mask uint32) error {
 	}
 
 	if flags != 0 {
-		err := ioctl(f, unix.FS_IOC_SETFLAGS, &flags)
+		err := ioctlSetUint32Retry(int(f.Fd()), unix.FS_IOC_SETFLAGS, flags)
 		if err != nil {
 			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
 		}
@@ -224,15 +194,85 @@ func (entry *Entry) restoreLateFileFlags(fullPath string, fileInfo os.FileInfo, 
 	}
 
 	if flags != 0 {
-		f, err := os.OpenFile(fullPath, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+		fd, err := openForChFlagsTryNoAtime(fullPath)
 		if err != nil {
 			return err
 		}
-		err = ioctl(f, unix.FS_IOC_SETFLAGS, &flags)
-		f.Close()
+		err = ioctlSetUint32Retry(fd, unix.FS_IOC_SETFLAGS, flags)
+		closeRetry(fd)
 		if err != nil {
 			return fmt.Errorf("Set flags 0x%.8x failed: %w", flags, err)
 		}
 	}
 	return nil
+}
+
+func ioctlGetUint32Retry(fd int, req uint) (uint32, error) {
+	return ignoringEINTRUint32(func() (value uint32, err error) {
+		argp := uintptr(unsafe.Pointer(&value))
+		_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(req), argp)
+		if errno != 0 {
+			err = errno
+		}
+		return
+	})
+}
+
+func ioctlSetUint32Retry(fd int, req uint, val uint32) error {
+	return ignoringEINTR(func() error {
+		argp := uintptr(unsafe.Pointer(&val))
+		_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(req), argp)
+		if errno == 0 {
+			return nil
+		}
+		return errno
+	})
+}
+
+func openForChFlagsTryNoAtime(path string) (fd int, err error) {
+	fd, err = ignoringEINTRInt(func() (int, error) {
+		return unix.Open(path, unix.O_NOATIME|unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NONBLOCK|unix.O_NOFOLLOW, 0)
+	})
+	if err == unix.EPERM {
+		fd, err = ignoringEINTRInt(func() (int, error) {
+			return unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NONBLOCK|unix.O_NOFOLLOW, 0)
+		})
+	}
+	return
+}
+
+func closeRetry(fd int) error {
+	return ignoringEINTR(func() error {
+		return unix.Close(fd)
+	})
+}
+
+func ignoringEINTR(fn func() error) (err error) {
+	for {
+		err = fn()
+		if err != unix.EINTR {
+			break
+		}
+	}
+	return
+}
+
+func ignoringEINTRInt(fn func() (int, error)) (r int, err error) {
+	for {
+		r, err = fn()
+		if err != unix.EINTR {
+			break
+		}
+	}
+	return
+}
+
+func ignoringEINTRUint32(fn func() (uint32, error)) (r uint32, err error) {
+	for {
+		r, err = fn()
+		if err != unix.EINTR {
+			break
+		}
+	}
+	return
 }

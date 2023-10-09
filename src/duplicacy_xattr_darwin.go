@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	darwinFileFlagsKey = "\x00bf"
+	darwinFileFlagsKey = "\x00B"
 )
 
 var darwinIsSuperUser bool
