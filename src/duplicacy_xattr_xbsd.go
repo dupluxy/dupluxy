@@ -24,7 +24,7 @@ const (
 	bsd_SF_SETTABLE = 0xffff0000
 	bsd_UF_SETTABLE = 0x0000ffff
 
-	bsdFileFlagsKey = "\x00bf"
+	bsdFileFlagsKey = "\x00B"
 )
 
 var bsdIsSuperUser bool
