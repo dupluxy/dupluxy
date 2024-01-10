@@ -9,7 +9,7 @@ ifeq ($(HAS_GO), yes)
   export PATH := $(GOPATH)/bin:$(PATH)
 endif
 
-OUTDIR ?= $(CURDIR)/out
+OUTDIR := $(CURDIR)/out
 
 define do_go_build
 	@case "$1" in \
@@ -27,16 +27,20 @@ define do_go_build
 	$(GO) build -o $@ -ldflags "-s -X main.Version=$$(git describe --tags --always --dirty) -X main.GitCommit=$$(git rev-parse --short=7 HEAD)" ./dupluxy
 endef
 
+.PHONY: build-all clean
+
 $(OUTDIR)/dupluxy_%:
 	@mkdir -p $(OUTDIR)
-	$(let os arch, $(subst _, ,$*), $(call do_go_build,$(basename $(arch)),$(os)))
-#	$(SHASUM) $$@ > $$@.sha256
+	$(call do_go_build,$(basename $(word 2, $(subst _, ,$*))),$(word 1, $(subst _, ,$*)))
 
 BUILDS := linux/x64 linux/arm64 linux/arm linux/i386 osx/x64 osx/arm64 win/x64 win/i386 freebsd/x64 freebsd/arm64 freebsd/i386
 
-build-all: $(foreach cfg,$(BUILDS), $(let os arch,$(subst /, ,$(cfg)), $(OUTDIR)/dupluxy_$(os)_$(arch)$(if $(findstring win,$(os)),.exe)))
+define target
+	$(OUTDIR)/dupluxy_$(word 1, $(1))_$(word 2, $(1))$(if $(findstring win,$(word 1, $(1))),.exe)
+endef
+
+build-all: $(foreach cfg,$(BUILDS), $(call target, $(subst /, ,$(cfg))))
 
 clean:
 	rm -rf $(OUTDIR)
 
-.PHONY: build-all clean
