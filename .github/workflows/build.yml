@@ -61,7 +61,7 @@ jobs:
           make build-all
 
       - name: Deploy built binaries
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: dupluxy-binaries
           path: out/dupluxy_*
