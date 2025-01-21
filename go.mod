@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	cloud.google.com/go v0.38.0
+	github.com/BurntSushi/toml v1.4.0
 	github.com/aryann/difflib v0.0.0-20170710044230-e206f873d14a
 	github.com/aws/aws-sdk-go v1.30.7
 	github.com/bkaradzic/go-lz4 v1.0.0
@@ -34,7 +35,6 @@ require (
 
 require (
 	github.com/Azure/go-autorest v10.15.5+incompatible // indirect
-	github.com/BurntSushi/toml v1.3.2 // indirect
 	github.com/calebcase/tmpfile v1.0.3 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/dnaeon/go-vcr v1.2.0 // indirect
