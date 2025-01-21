@@ -2008,10 +2008,6 @@ func (manager *SnapshotManager) PruneSnapshots(selfID string, snapshotID string,
 	// deletable.
 	for _, collectionName := range collections {
 
-		if collectOnly {
-			continue
-		}
-
 		matched := collectionRegex.FindStringSubmatch(collectionName)
 		if matched == nil {
 			continue
@@ -2020,6 +2016,10 @@ func (manager *SnapshotManager) PruneSnapshots(selfID string, snapshotID string,
 		collectionNumber, _ := strconv.Atoi(matched[1])
 		if collectionNumber > maxCollectionNumber {
 			maxCollectionNumber = collectionNumber
+		}
+
+		if collectOnly {
+			continue
 		}
 
 		collectionFile := path.Join(collectionDir, collectionName)
